@@ -38,10 +38,10 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
   }
 
   return (
-    <div className="group block bg-white rounded-xl overflow-hidden shadow-sm border border-stone-200 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative">
+    <div className="group block bg-white rounded-xl shadow-sm border border-stone-200 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative">
       <Link to={`/story/${story.slug}`} className="block">
         {story.image_url && (
-          <div className="relative overflow-hidden h-48">
+          <div className="relative overflow-hidden h-48 rounded-t-xl">
             <img
               src={story.image_url}
               alt={story.title}
@@ -81,7 +81,7 @@ export function HeadlineStory({ story }: { story: Story }) {
   });
 
   return (
-    <div className="group block relative rounded-2xl overflow-hidden shadow-xl mb-12">
+    <div className="group block relative rounded-2xl shadow-xl mb-12">
       <Link to={`/story/${story.slug}`} className="block">
         {story.image_url && (
           <div className="absolute inset-0">

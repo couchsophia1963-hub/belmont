@@ -178,7 +178,6 @@ export function StoryDetailPage() {
         >
           <ArrowLeft className="w-4 h-4" /> Back to Home
         </Link>
-        <ShareButton slug={story.slug} title={story.title} />
       </div>
 
       <CommentSection storyId={story.id} />
