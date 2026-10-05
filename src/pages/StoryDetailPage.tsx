@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { CommentSection } from '@/components/CommentSection';
 import type { Story, Profile } from '@/types';
-import { Loader2, ArrowLeft, Calendar, Clock, Tag, Lock } from 'lucide-react';
+import { Loader2, ArrowLeft, Calendar, Clock, Tag } from 'lucide-react';
 import { ShareButton } from '@/components/ShareButton';
 
 type StoryWithAuthor = Story & {
@@ -118,12 +118,6 @@ export function StoryDetailPage() {
         {!story.published && (
           <span className="inline-flex items-center gap-1 font-sans text-xs font-bold uppercase tracking-wider text-white bg-stone-500 px-3 py-1 rounded-full">
             Draft
-          </span>
-        )}
-        {story.locked && (
-          <span className="inline-flex items-center gap-1 font-sans text-xs font-bold uppercase tracking-wider text-primary-700 bg-primary-50 px-3 py-1 rounded-full border border-primary-200">
-            <Lock className="w-3 h-3" />
-            Locked
           </span>
         )}
       </div>
