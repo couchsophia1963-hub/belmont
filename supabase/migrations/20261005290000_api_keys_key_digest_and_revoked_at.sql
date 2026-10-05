@@ -232,6 +232,36 @@ table-level privileges to be the thing that is already true.
 points at the Shipwright project, not Belmont News (BEL-48). Applying it is a human action in the
 Supabase dashboard, and it has not been applied.
 
+## 6a. The one ordering hazard nobody will see in a log
+
+**Merging the edge function change is safe. Rebuilding the deployed app from that `main` is not.**
+
+The base schema `20261004123918` creates `api_keys` with `key_hash` only -- no `key_digest`, no
+`revoked_at`. Those columns arrive here, in `20261005300000`, and in `20261005305000`. The function
+that reads `key_digest` (PR #58) is one `select("id, user_id, revoked_at").eq("key_digest", digest)`
+away from asking PostgREST for a column that does not exist, and PostgREST answers PGRST204:
+
+  every desk key refused, no error naming a column, homepage still rendering
+
+because the homepage never touches `api_keys`. That is rule 1 running backwards -- code first,
+database second -- and it is the direction nobody checks.
+
+**No workflow in this repository deploys the app or the function.** `ci.yml` runs the gates and
+`deploy-pages.yml` builds the site; neither contains a `supabase db push`, a migration step, or a
+Supabase deploy token. So a rebuild of the hosted app is triggered from the **platform**, not from a
+push, and **it will not appear in any workflow log.** Nobody will be told.
+
+Before the app is rebuilt from a `main` containing PR #58:
+
+  1. this file has been applied to Belmont News, and
+  2. its section 6 precheck has been read on the real database -- `authenticated` holds table-level
+     INSERT and SELECT on `api_keys` -- and
+  3. `service_role` holds table-level SELECT on `api_keys`, or the WARNING added by PR #59 fires.
+
+None of those three has been checked against the real database by anyone, because no agent on this
+beat can reach it. Merging #58 is a text operation and carries no risk; the rebuild is the part that
+is dangerous, and the two are easy to confuse because the second follows the first automatically.
+
 ## 7. Why SHA-256, and why no salt and no slow KDF
 
 `key_digest` is the SHA-256 digest of the raw `bcn_...` key, lowercase hex, no prefix -- the same
