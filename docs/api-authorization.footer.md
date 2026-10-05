@@ -21,6 +21,19 @@ it fires for every caller of the table, including the ones RLS has already admit
 RLS cannot see it. Only a trigger that raises an exception is a control, so this column
 counts one only for a trigger whose function refuses.
 
+A trigger declares the columns it guards in one of two ways, and the check reads both:
+
+```
+BEFORE UPDATE OF role ON profiles ...   -- the event clause names the column
+BEFORE UPDATE ON stories ...            -- the event clause names none; the function
+                                           refuses when NEW.locked differs from OLD.locked
+```
+
+Reading only the event clause reports the second shape as guarding nothing, which would
+print a gap as unmitigated when the repository has closed it. A column counts as guarded
+when the trigger refuses, and either the event clause lists it or the function compares
+`NEW.<column>` against `OLD.<column>`.
+
 **Status** is handled differently by the check for each value:
 
 | status | meaning | on drift |
@@ -75,12 +88,21 @@ npm run check:authz --debug   # dump the parsed model: branches, policies, trigg
 9. `docs/api-authorization.md` must match what the spec generates, so the table people
    read and the table the check enforces are the same table.
 
-SQL comments are blanked out before the migrations are parsed, preserving offsets. These
+Two parser habits, both learned from a check that printed `PASS` while the table was wrong:
+
+**SQL comments are blanked out before the migrations are parsed**, preserving offsets. These
 migrations document themselves by quoting the DDL they replace --
 `20261005190000_profiles_role_not_self_assignable.sql` opens with the text of
-`profiles_owner_update` inside a block comment -- so a parser that does not skip
-comments reads it as a second live policy, and then reports a row as unresolvable for
-the wrong reason. That is the same failure as a false `PASS`.
+`profiles_owner_update` inside a block comment -- so a parser that does not skip comments
+reads it as a second live policy, and then reports a row as unresolvable for the wrong
+reason.
+
+**Every gap between two SQL keywords is matched with `[\s\S]*?`, never `.*?`.** A dot does
+not cross a newline, and this repository writes the same DDL both ways: `FOR EACH ROW
+EXECUTE FUNCTION ...` on one line in `20261005190000`, split across two in `20261005200000`.
+With `.*?` the second trigger is not found at all, and a guard the repository carries reads
+as absent -- which is the false `PASS` one level down, because the rows that depend on the
+guard stop being checked rather than starting to fail.
 
 The check has no dependencies and needs no network, so it runs in a fresh checkout with
 no install step.

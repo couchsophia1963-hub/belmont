@@ -21,16 +21,21 @@ happened to look at. So the answers are written down here, and
 
 ## The short answer
 
-| | who |
-| --- | --- |
-| `delete`, either resource | **admin only**, both surfaces |
-| `lock`, `unlock` | **admin only** in the function, **any writer** through PostgREST |
-| `publish`, `unpublish` | **any writer**, both surfaces |
-| `create`, `update`, `upsert` | **any writer**, both surfaces |
+| | who | agreed on both surfaces? |
+| --- | --- | --- |
+| `delete`, either resource | **admin only** | yes |
+| `lock`, `unlock` | **admin only** in the function, **any writer** through PostgREST | no |
+| `publish`, `unpublish` | **any writer** | yes |
+| `create`, `update`, `upsert` | **any writer** | yes |
 
 Delete is admin-only everywhere. Everything else a writer is meant to touch is
-writer-accessible on both surfaces, with one exception recorded below as a known gap
-rather than papered over.
+writer-accessible on both surfaces.
+
+The one row where the two surfaces disagree is `lock`/`unlock`, and it is not left as a
+narrative: the table marks it, the check prints it on every run, and a trigger in the
+repository closes it without being applied to the database. See the open items below. That
+phrase is about the two surfaces only. Where a column is the subject, neither surface can
+express the rule at all, which is what the trigger column is for.
 
 ## Two surfaces, and a third one that is neither
 
@@ -44,30 +49,35 @@ for every caller of the table, including the ones RLS has already admitted, and 
 cannot see it. Only a trigger that refuses is a control, so this file counts one only
 when the function it calls raises an exception.
 
-## Open items
+## Open items: three rows the repository has closed and the database has not
 
-**`stories.locked` and `stories.locked_until` are writable by any writer.** Known gap,
-rows `stories.lock` and `stories.unlock`. `stories_writer_update` admits writers and
-admins for every column, so a writer can clear a lock that an admin set --
-`stories_admin_delete` is `USING (admin AND locked = false)`, and that clause is the
-only thing between an admin and a deliberately frozen story. Tracked as BEL-253.
+All three have the same shape, and the shape is the point. RLS is row-level, so no policy
+can say "any column of this row except this one". Three findings are each a column a
+subject should not be able to write, and none of them is expressible in RLS at all. Each is
+closed in the repository by a trigger that refuses, and none is applied. **Merging is not
+applying**, and a table that cannot tell those two apart lies by omission, so these rows
+say so and `npm run check:authz` prints them on every run.
 
-The migration that introduced story locking reasons about this at
-`20261005123424_..._story_locking.sql.sql:21-25`: because Postgres RLS is row-level, it
-argues, the `locked` columns need no special handling. The premise is right and the
-conclusion does not follow from it. Row-level means a policy *cannot* express "not the
-`locked` column", which is not the same as the column being covered. A column-scoped
-control needs a column grant or a trigger.
+| row | column | policy on its own | trigger in the repository | migration |
+| --- | --- | --- | --- | --- |
+| `stories.lock`, `stories.unlock` | `stories.locked`, `stories.locked_until` | `stories_writer_update` admits any writer for every column | `stories_guard_lock_columns` | `20261005200000` |
+| `rls.profiles.update` | `profiles.role` | `profiles_owner_update` is `USING (auth.uid() = id) WITH CHECK (auth.uid() = id)`, so on its own it does not constrain the column | `profiles_guard_role_update` | `20261005190000` |
 
-**`profiles.role` is writable by its own subject, and the repository now closes it.**
-Row `rls.profiles.update`, status *mitigated, unapplied*. `profiles_owner_update` is
-`USING (auth.uid() = id) WITH CHECK (auth.uid() = id)`, and RLS is row-level, so on its
-own it does not constrain the `role` column. That matters more than a profile field:
-`authenticate()` reads that column, so it is the key to every role check in the
-function. Migration `20261005190000` adds a `BEFORE UPDATE OF role` trigger that refuses
-a role change from any caller that is not `service_role`, a no-JWT session, or an
-existing admin.
+`profiles.role` is the more serious of the two classes. `authenticate()` reads that column,
+so it is the key to every role check in the edge function; one self-assignment there
+escalates everywhere the function authorises. Its migration refuses a role change from any
+caller that is not `service_role`, a no-JWT session, or an existing admin.
 
-That migration is in the repository and **has not been applied to the live database**,
-which is the whole difference between this row and a settled one. Merging is not
-applying, and a table that cannot tell the two apart is a table that lies by omission.
+`stories.locked` matters because `stories_admin_delete` is `USING (admin AND locked =
+false)`, and that clause is the only thing between an admin and a deliberately frozen
+story. The migration guarding it also refuses a non-admin moving `published` from true to
+false while the story is locked, so the lock cannot be stepped around by taking the story
+offline instead. Tracked on BEL-122, which the board confirmed as the canonical ticket for
+this hole.
+
+Two findings produced these rows and both were closed as duplicates of existing tickets, so
+the canonical numbers here are theirs: BEL-251 was closed against BEL-224, and BEL-253
+against BEL-122. The rows follow the surviving tickets rather than the duplicates.
+
+What a lock means is unchanged by any of this. It prevents deletion and unpublishing. It is
+not a freeze: a locked story stays correctable with `update`, deliberately.

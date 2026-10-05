@@ -458,8 +458,21 @@ function parseTriggers() {
   const triggers = [];
   for (const file of migrationFiles()) {
     const sql = readMigration(file);
+    /*
+     The gap between `FOR EACH ROW` and `EXECUTE FUNCTION` is matched with `[\s\S]*?`
+     rather than `.*?`, because `.` does not cross a newline and this repository writes
+     it both ways:
+
+       FOR EACH ROW EXECUTE FUNCTION public.guard_profiles_role_update();   -- one line
+       FOR EACH ROW
+         EXECUTE FUNCTION public.stories_guard_lock_columns();             -- two
+
+     A dot that does not cross a newline does not fail loudly. It silently finds no
+     trigger, so a guard the repository carries reads as absent and the rows that depend
+     on it go quiet. That is the false-PASS shape again, one level down.
+    */
     for (const m of all(
-      /CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+"?([A-Za-z0-9_]+)"?\s+((?:BEFORE|AFTER|INSTEAD\s+OF)\s+[A-Za-z\s]+?)\s+ON\s+(?:public\.)?"?([A-Za-z0-9_]+)"?\s+(.*?)EXECUTE\s+(?:FUNCTION|PROCEDURE)\s+(?:public\.)"?([A-Za-z0-9_.]+)"?\s*\(/gi,
+      /CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+"?([A-Za-z0-9_]+)"?\s+((?:BEFORE|AFTER|INSTEAD\s+OF)\s+[A-Za-z\s]+?)\s+ON\s+(?:public\.)?"?([A-Za-z0-9_]+)"?\s+([\s\S]*?)EXECUTE\s+(?:FUNCTION|PROCEDURE)\s+(?:public\.)"?([A-Za-z0-9_.]+)"?\s*\(/gi,
       sql,
     )) {
       const [, name, when, table, middle, fn] = m;
@@ -477,6 +490,7 @@ function parseTriggers() {
           : null,
         fn,
         refuses: /RAISE\s+EXCEPTION/i.test(body),
+        body,
         file,
         line: lineAt(sql, m.index),
       });
@@ -497,6 +511,29 @@ function functionBody(sql, fn) {
   return end === -1 ? "" : sql.slice(start, end);
 }
 
+/*
+   Whether a trigger guards a column has two shapes, and this repository uses both:
+
+     BEFORE UPDATE OF role ON profiles ...        -- the event clause names the column
+     BEFORE UPDATE ON stories ...                 -- the event clause names none, and the
+                                                    function refuses only when
+                                                    NEW.<column> differs from OLD.<column>
+
+   Reading only the event clause reports the second as guarding nothing, which would
+   print a gap as unmitigated that the repository has in fact closed. Reading only the
+   function body would be worse, since a body can mention a column and never refuse on
+   it. So a column counts as guarded when the trigger refuses, and either the event
+   clause lists it or the body compares NEW.<column> against OLD.<column>.
+ */
+function guardsColumn(trigger, column) {
+  const col = column.toLowerCase();
+  if (trigger.columns && trigger.columns.includes(col)) return true;
+  if (trigger.columns) return false;
+  return new RegExp(`NEW\\.${col}\\s+IS\\s+DISTINCT\\s+FROM\\s+OLD\\.${col}`, "i").test(
+    trigger.body || "",
+  );
+}
+
 function guardFor(row, triggers) {
   if (!row.columnGuards) return { declared: null, observed: [] };
   const observed = [];
@@ -507,8 +544,7 @@ function guardFor(row, triggers) {
         t.command === row.command &&
         t.name === triggerName &&
         t.refuses &&
-        t.columns &&
-        t.columns.includes(column.toLowerCase()),
+        guardsColumn(t, column),
     );
     observed.push({ column, triggerName, found: found || null });
   }
@@ -733,10 +769,12 @@ function check() {
     // A gap that only prints for one of the two surfaces is a gap that goes quiet.
     if (REPORTED_STATUSES.includes(row.status)) {
       reported.push(row.id);
-      const guardText =
-        entry.guards && entry.guards.declared
-          ? `; guard \`${Object.values(entry.guards.declared).join(", ")}\` ${entry.guards.observed.every((g) => g.found) ? "present" : "MISSING"}`
-          : "";
+      const guardNames = entry.guards && entry.guards.declared
+        ? [...new Set(Object.values(entry.guards.declared))].join(", ")
+        : null;
+      const guardText = guardNames
+        ? `; guard \`${guardNames}\` ${entry.guards.observed.every((g) => g.found) ? "present" : "MISSING"}`
+        : "";
       if (row.surface === "api") {
         note(
           row,
