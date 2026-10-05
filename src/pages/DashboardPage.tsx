@@ -27,6 +27,23 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
+// API key material. The alphabet and the body length together give
+// log2(36^40) = 206.8 bits, which is more than a bearer token needs and far more
+// than anyone can search. That figure is only true of the source of those bits,
+// which is why generateApiKey draws from `crypto` and not from `Math.random()`.
+const KEY_PREFIX = 'bcn_';
+const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const KEY_BODY_LENGTH = 40;
+
+// The largest whole multiple of the alphabet size that fits in one byte:
+// 36 * 7 = 252. A byte carries 256 values, so `byte % KEY_ALPHABET.length` would
+// map values 0-3 onto the first four letters of the alphabet 8 times each and
+// every other character 7 times each, which makes `a` through `d` about 14% more
+// likely than `8` or `9`. Bytes at or above this ceiling are drawn again rather
+// than folded in, so every character stays equally likely and the entropy figure
+// above holds exactly rather than approximately.
+const KEY_BYTE_CEILING = Math.floor(256 / KEY_ALPHABET.length) * KEY_ALPHABET.length;
+
 export function DashboardPage() {
   const { session, profile, loading, refreshProfile } = useAuth();
 
@@ -171,13 +188,34 @@ function WriterDashboard({ userId }: { userId: string }) {
     loadStories();
   }, [loadApiKeys, loadStories]);
 
+  // Generate a bearer key from the platform CSPRNG.
+  //
+  // This used to build the key from `Math.random()`, which is not one. V8 does not
+  // seed `Math.random()` from the operating system entropy source, and its output
+  // can be reconstructed from a small number of observed draws, so a key assembled
+  // from it is not an unguessable secret -- it is an obfuscated one. That is a
+  // defect in the credential itself, so it cannot be repaired later by storing the
+  // key differently; the material has to come from the right generator on the way
+  // in.
+  //
+  // `crypto.getRandomValues` is available in every browser this panel runs in, is
+  // the source the Web Crypto specification exists for, and adds no dependency.
+  // Rotation (`handleRerollKey`) calls this same function, so rotating now yields
+  // properly random material where it previously re-rolled a weak key.
+  //
+  // Does this rotate anything? No. It changes how a key is generated, not what is
+  // stored, so no stored credential is invalidated and no caller has to be given a
+  // replacement. Storage is the separate, sequenced change recorded on BEL-273.
   const generateApiKey = (): string => {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    let key = 'bcn_';
-    for (let i = 0; i < 40; i++) {
-      key += chars[Math.floor(Math.random() * chars.length)];
+    let body = '';
+    while (body.length < KEY_BODY_LENGTH) {
+      for (const byte of crypto.getRandomValues(new Uint8Array(KEY_BODY_LENGTH))) {
+        if (byte >= KEY_BYTE_CEILING) continue;
+        body += KEY_ALPHABET[byte % KEY_ALPHABET.length];
+        if (body.length === KEY_BODY_LENGTH) break;
+      }
     }
-    return key;
+    return KEY_PREFIX + body;
   };
 
   const handleCreateKey = async (e: React.FormEvent) => {
