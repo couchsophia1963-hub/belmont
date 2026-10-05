@@ -22,10 +22,19 @@
  THE TWO SURFACES, AND WHY THEY HAVE TO BE READ TOGETHER
 
  `supabase/functions/api/index.ts` builds its client with SUPABASE_SERVICE_ROLE_KEY
- (`index.ts:10,12`). Service role bypasses RLS entirely, so on that path the only
- thing standing between a writer key and a mutation is an `if` statement in
- TypeScript. PostgREST runs as `authenticated`, where RLS is the only gate and the
- TypeScript is not involved at all.
+ (the `createClient(supabaseUrl, supabaseServiceKey, ...)` at the top of the file).
+ Service role bypasses RLS entirely, so on that path the only thing standing between a
+ writer key and a mutation is an `if` statement in TypeScript. PostgREST runs as
+ `authenticated`, where RLS is the only gate and the TypeScript is not involved at all.
+
+ No line numbers appear anywhere in this spec or the document it generates. That is
+ deliberate and it was not the original choice. This file was written against a tree
+ where the weather delete guard sat at `index.ts:337-341`; by the time the branch was
+ rebased onto `main` eleven pull requests later the same guard was at 363-365, and the
+ other two citations had moved from 10,12 to 11,13 and from 61 to 35. All three were
+ wrong and nothing said so, because nothing checks them and a stale line number still
+ reads like it was verified. A commit SHA does not move, so the durable citations here
+ are SHAs and the text of the guard, not coordinates.
 
  Neither surface is a backstop for the other. A guard in the function is invisible
  to `DashboardPage`; a policy is invisible to the function. Any statement about who
@@ -111,6 +120,123 @@ export const OUT_OF_BRANCH_WRITES = [
     table: "api_keys",
     marker: "last_used_at",
     note: "Authenticate() refreshes the caller's key timestamp before it checks the profile. It is a write on the caller's own key, keyed on the presented secret, and it grants nothing: the row is selected by key_hash before this runs, so an unknown key updates nothing. It is here to be declared, not because it is an authorisation surface.",
+  },
+];
+
+/*
+ Surfaces that can reach the database or change who may write, which the branch,
+ policy and trigger models do not describe, and which therefore have to be declared
+ here with the reason they are not an authorisation surface.
+
+ The check is a deny-list over these. Anything the scan finds that is neither
+ described by a row in SPEC nor declared here is `UNMODELLED SURFACE` -- a failure
+ saying the checker cannot answer who may do it, rather than a guess that it is fine.
+ An earlier version enumerated the four table-write primitives and reported PASS on
+ everything else, which fails open: `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` and
+ `.rpc("escalate_my_role")` both bypass every policy and both printed PASS.
+
+ Each entry is `kind` and `name`, matching what the scan reports, plus the reason.
+ A widening that is genuinely intended belongs in the models instead of here: this
+ list is for surfaces that carry no authority, and an entry that reads like a
+ justification for a widening is in the wrong place.
+
+   kind               name
+   ----               ----
+   rls-off            "<table>: RLS disabled, no policy is consulted"
+   grant              "GRANT ... TO ..." / "REVOKE ... FROM ..."
+   security-definer   the function name
+   call               the method name, e.g. `rpc`
+   fetch              "mutating method"
+   service-role       "referenced outside the client construction"
+*/
+export const DECLARED_SURFACES = [
+  {
+    kind: "security-definer",
+    name: "handle_new_user",
+    note: "The signup trigger on auth.users. It INSERTs one profiles row for the account being created and hard-codes role='user', ignoring raw_user_meta_data, so it cannot be used to choose a role. It is not exposed through PostgREST: no GRANT EXECUTE names it, and Supabase exposes only functions in the exposed schema with a grant. Read anyway, because it is a SECURITY DEFINER function that writes.",
+  },
+  {
+    kind: "security-definer",
+    name: "guard_profiles_role_update",
+    note: "The trigger function for profiles_guard_role_update. It raises rather than writes, and `search_path` is pinned. Declared because it is SECURITY DEFINER and therefore runs as its owner; the column it guards is asserted by the rls.profiles.update row.",
+  },
+  {
+    kind: "security-definer",
+    name: "stories_guard_lock_columns",
+    note: "The trigger function for stories_guard_lock_columns. It raises rather than writes, and `search_path` is pinned. The columns it guards are asserted by the stories.lock and stories.unlock rows.",
+  },
+  {
+    kind: "grant",
+    name: "REVOKE ALL ON public.comments_public FROM PUBLIC",
+    note: "Narrows. It takes the default privileges on a view away from PUBLIC so the GRANT on the next line is the whole grant. Read-only surface either way.",
+  },
+  {
+    kind: "grant",
+    name: "GRANT SELECT ON public.comments_public TO anon, authenticated",
+    note: "The public comment view, and the only grant in the repository. SELECT on a view, so it cannot change a row, and the view exposes id, author name, body, created_at. This is the intended public surface for comments and is why comments need no writer role to be read.",
+  },
+  {
+    kind: "grant",
+    name: "ALTER comments_public OWNER TO postgres",
+    note: "Ownership, not a grant to a client role. postgres is the migration role and never authenticates as a PostgREST subject, so this widens nothing a reader can reach.",
+  },
+
+  /*
+    The next nine arrived on main tonight, from the headline-invariant and
+    byline-change migrations. They are here because the scan found them, not because
+    anybody went looking, which is the only reason to trust the list being complete.
+
+    Five of the nine narrow. Four are grants onto functions that are SECURITY INVOKER,
+    which is the distinction that decides all four: an invoker function runs with the
+    caller's authority, so RLS still governs every statement inside it and the function
+    cannot reach a row its caller could not reach with the same UPDATE. A definer
+    function is the opposite, and the one definer function below is declared for exactly
+    that reason.
+  */
+  {
+    kind: "grant",
+    name: "REVOKE all on function public.set_story_headline(uuid, boolean) from public",
+    note: "Narrows. Takes the function away from PUBLIC before the GRANT below, so the GRANT is the whole grant and not an addition to Postgres' default EXECUTE to PUBLIC. Same reason as the comments_public REVOKE two entries up.",
+  },
+  {
+    kind: "grant",
+    name: "REVOKE all on function public.set_story_headline(uuid, boolean) from anon",
+    note: "Narrows. An anonymous reader never gets to move the homepage headline, which is what the revoke guarantees even if a later migration grants EXECUTE to anon by accident.",
+  },
+  {
+    kind: "grant",
+    name: "GRANT execute on function public.set_story_headline(uuid, boolean) to authenticated",
+    note: "Reachable by any signed-in user through PostgREST, so it is worth naming rather than waving through. SECURITY INVOKER with search_path pinned to public, so the UPDATE inside it runs as the caller and `stories_writer_update` is still the only thing deciding which rows move. What it does carry is editorial authority: it sets `is_headline`, which is the same class of decision as publish and unpublish. That is consistent with the answer BEL-258 recorded for those, so it is declared here rather than quietly read as a new gap. If BEL-258 is ever revisited, this is the row to revisit with it.",
+  },
+  {
+    kind: "grant",
+    name: "REVOKE ALL ON TABLE public.story_byline_changes FROM PUBLIC",
+    note: "Narrows. The audit table starts from nothing rather than from Postgres' default, so the GRANT on the next line is the whole grant.",
+  },
+  {
+    kind: "grant",
+    name: "REVOKE ALL ON TABLE public.story_byline_changes FROM anon, authenticated, service_role",
+    note: "Narrows, and the deliberate half of the design. It takes every write privilege away from every role so that the only INSERT policy that can exist is none, which is how the table keeps an append-only property even if somebody adds a GRANT by hand later. service_role included: the trigger below inserts as its owner, not through this grant.",
+  },
+  {
+    kind: "grant",
+    name: "GRANT SELECT ON TABLE public.story_byline_changes TO authenticated, service_role",
+    note: "A read. SELECT cannot change a row, and the table grants INSERT, UPDATE and DELETE to nobody at all, so the audit log is readable by the desk and writable by no one reachable from a request.",
+  },
+  {
+    kind: "grant",
+    name: "REVOKE ALL ON FUNCTION public.change_story_byline(uuid, uuid, uuid, text, text) FROM PUBLIC",
+    note: "Narrows. Same pattern as set_story_headline: revoke from PUBLIC first so the GRANT below is the whole grant.",
+  },
+  {
+    kind: "grant",
+    name: "GRANT EXECUTE ON FUNCTION public.change_story_byline(uuid, uuid, uuid, text, text) TO authenticated, service_role",
+    note: "The one grant here that is worth reading the body for, because the function takes a caller-supplied `p_actor_profile_id` and the caller-supplied actor is the same shape as the self-promotion BEL-224 closed. Read, it holds: a signed-in session may attribute only to itself and an asserted actor must be writer or admin, both enforced with RAISE EXCEPTION before the UPDATE. SECURITY INVOKER with search_path pinned, so `stories_writer_update` decides which stories move. Declared on the strength of that read, and the check is what made the read happen.",
+  },
+  {
+    kind: "security-definer",
+    name: "stories_log_byline_change",
+    note: "The one entry here that does carry authority, which is why it is declared rather than waved through. SECURITY DEFINER, so it inserts into story_byline_changes as its owner, and that table grants INSERT to nobody. It has to be a definer function to write at all; that is the design and it is not a bypass of a policy, because there is no policy it is bypassing. `search_path` is pinned to public so it is not search-path injectable. It is a trigger, so it fires inside someone else's UPDATE rather than being callable on its own, and it writes one audit row and nothing else. Declared as a capability the table does not model as a control: it does not authorise a caller's write, it records one.",
   },
 ];
 
@@ -266,7 +392,7 @@ export const SPEC = [
     command: "DELETE",
     status: "settled",
     editorialRef: "api-of-record rule 5: delete on either resource is off limits without an explicit board decision.",
-    note: "Admin only, on both surfaces. Function guard at index.ts:337-341 (PR #9, d35e72a); RLS renamed weather_writer_delete to weather_admin_delete in 20261005170000 (PR #20, 63f543c). There is no lock or published equivalent to slow a writer down, which made it the least braked action in the function and the one this table was written for. BEL-235 reported it as ungated; it was gated on main already.",
+    note: "Admin only, on both surfaces. The function guard is the `profile.role !== \"admin\"` test in the delete branch, landed in `d35e72a` (PR #9); RLS renamed weather_writer_delete to weather_admin_delete in 20261005170000 (PR #20, 63f543c). There is no lock or published equivalent to slow a writer down, which made it the least braked action in the function and the one this table was written for. BEL-235 reported it as ungated; it was gated on main already. Cited by commit rather than by line, because the line moved twice under a rebase and nothing here checks it.",
   },
   {
     id: "rls.stories.insert",

@@ -12,12 +12,12 @@ mechanical authority for its role column, so where the two disagree, this file i
 one that has to be right.
 
 Added on BEL-235, which reported that the `weather delete` branch has no role check.
-It does have one, at `index.ts:337-341`, and it had since `d35e72a`. The part of that
-ticket worth doing was the rest of it: the function authorised per action, the answers
-did not agree, and each disagreement had been found separately by somebody reading one
-action. That is a method that finds one action per pass and only the ones somebody
-happened to look at. So the answers are written down here, and
-`scripts/check-api-authorization.mjs` fails when the code stops matching them.
+It does have one, and it had since `d35e72a`. The part of that ticket worth doing was
+the rest of it: the function authorised per action, the answers did not agree, and each
+disagreement had been found separately by somebody reading one action. That is a method
+that finds one action per pass and only the ones somebody happened to look at. So the
+answers are written down here, and `scripts/check-api-authorization.mjs` fails when the
+code stops matching them.
 
 ## The short answer
 
@@ -127,7 +127,7 @@ not a freeze: a locked story stays correctable with `update`, deliberately.
 - **`weather.upsert`** — One card per forecast_date. Matches weather_writer_insert.
 - **`weather.create`** — Shares the upsert branch, `action === "upsert" || action === "create"`.
 - **`weather.update`** — Matches weather_writer_update.
-- **`weather.delete`** — Admin only, on both surfaces. Function guard at index.ts:337-341 (PR #9, d35e72a); RLS renamed weather_writer_delete to weather_admin_delete in 20261005170000 (PR #20, 63f543c). There is no lock or published equivalent to slow a writer down, which made it the least braked action in the function and the one this table was written for. BEL-235 reported it as ungated; it was gated on main already.
+- **`weather.delete`** — Admin only, on both surfaces. The function guard is the `profile.role !== "admin"` test in the delete branch, landed in `d35e72a` (PR #9); RLS renamed weather_writer_delete to weather_admin_delete in 20261005170000 (PR #20, 63f543c). There is no lock or published equivalent to slow a writer down, which made it the least braked action in the function and the one this table was written for. BEL-235 reported it as ungated; it was gated on main already. Cited by commit rather than by line, because the line moved twice under a rebase and nothing here checks it.
   Editorial gate: api-of-record rule 5: delete on either resource is off limits without an explicit board decision.
 - **`rls.stories.insert`** — WITH CHECK admits writer and admin.
 - **`rls.stories.update`** — Row-level and column-blind. This is the policy that makes the stories.lock and stories.unlock rows above real.
@@ -146,9 +146,8 @@ not a freeze: a locked story stays correctable with `update`, deliberately.
 
 **Function rule** is the role test in the edge function, if there is one. `writer`
 there means there is no `profile.role` test in the branch at all: the call is gated only
-by `authenticate()` (`index.ts:61`), which admits any `bcn_` key whose profile is a
-`writer` or an `admin`. `admin` means the branch tests `profile.role !== "admin"` and
-returns 403.
+by `authenticate()`, which admits any `bcn_` key whose profile is a `writer` or an
+`admin`. `admin` means the branch tests `profile.role !== "admin"` and returns 403.
 
 **PostgREST rule** is what the live RLS policies admit for that table and command, with
 the policy names. `owner` means the policy compares the row's owner column to

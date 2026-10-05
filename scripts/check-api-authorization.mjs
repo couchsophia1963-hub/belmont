@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import {
   SPEC,
   OUT_OF_BRANCH_WRITES,
+  DECLARED_SURFACES,
   DOC_PATH,
   DOC_HEADER_PATH,
   DOC_FOOTER_PATH,
@@ -95,8 +96,29 @@ function skipString(src, quoteAt, quote) {
  that does not skip comments reads it as a second live policy on profiles and then
  reports the row as unresolvable. Worse, it would report it as unresolvable for the
  wrong reason, which is the same failure as reporting PASS for the wrong reason.
+
+ `blankStrings` additionally blanks the contents of quoted runs. That is the right shape
+ for the capability scan and the wrong shape for the policy parser, so it is opt-in
+ rather than a change of default.
+
+ The two parsers want opposite things from a literal:
+
+   - the policy parser needs `role = 'admin'`. Blanking it reads as no role test at
+     all, which is a false UNREADABLE GUARD on a correct policy.
+   - the capability scan does not want it. A literal is a value, never a verb, so
+     `COMMENT ON COLUMN api_keys.key_hash IS '... Do not widen any grant to include
+     it.';` is prose that a scan for GRANT reads as `GRANT  TO include it.`. That is
+     not a cosmetic misfire: it is a FAIL on a line that grants nothing, in a check
+     whose whole purpose is to be trustworthy when it says FAIL.
+
+ Dollar-quoted runs are blanked too under `blankStrings`, because a function body is
+ code and this repository builds DDL through `format($ddl$ ... $ddl$)`. Nothing hides
+ a grant there today: the only dynamic DDL in the tree creates a trigger function and
+ a trigger, and the only dynamic statements are `DROP TRIGGER` and `format(...)`
+ preflight probes. The regression test is `dynamic sql that could carry a grant`.
 */
-function stripSqlComments(sql) {
+function stripSqlComments(sql, { blankStrings = false } = {}) {
+  const keepNewlines = (run) => run.replace(/[^\n]/g, " ");
   let out = "";
   let i = 0;
   while (i < sql.length) {
@@ -120,7 +142,9 @@ function stripSqlComments(sql) {
     }
     if (c === '"' || c === "'") {
       const end = skipString(sql, i, c);
-      out += sql.slice(i, end);
+      // A quoted identifier names an object and stays. A string literal is a value,
+      // and the capability scan has no reason to read one as a verb.
+      out += blankStrings && c === "'" ? keepNewlines(sql.slice(i, end)) : sql.slice(i, end);
       i = end;
       continue;
     }
@@ -129,7 +153,7 @@ function stripSqlComments(sql) {
       const tag = dollar[0];
       const close = sql.indexOf(tag, i + tag.length);
       const end = close === -1 ? sql.length : close + tag.length;
-      out += sql.slice(i, end);
+      out += blankStrings ? keepNewlines(sql.slice(i, end)) : sql.slice(i, end);
       i = end;
       continue;
     }
@@ -207,6 +231,73 @@ function lineAt(src, index) {
   return src.slice(0, index).split("\n").length;
 }
 
+/*
+  Blank out TypeScript comments, preserving offsets and newlines so `lineAt` still
+  reports the line the code is on.
+
+  String literals are stepped over rather than blanked. This is the one place the
+  obvious shortcut is wrong: blanking every quoted run removes the `method: "DELETE"`
+  literal the raw-fetch test exists to read, and it does worse than that, because
+  `https://` inside a URL looks exactly like a line comment and takes the rest of
+  the line with it. Both failure modes printed PASS on a live mutating fetch.
+
+  Comments are stripped once, over the whole file, before anything is matched
+  against them. Stripping a window *after* locating `fetch(` inside it cannot help:
+  the comment that hid the call starts before the match, so it is not in the window
+  at all. The regression tests are `raw mutating fetch` and both comment forms.
+*/
+function stripComments(src) {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < src.length && src[i] !== "\n") {
+        out += " ";
+        i += 1;
+      }
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) {
+        out += src[i] === "\n" ? "\n" : " ";
+        i += 1;
+      }
+      if (i < src.length) {
+        out += "  ";
+        i += 2;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      // Copied through verbatim, contents and all. The point of stepping over the
+      // literal is only to stop `//` and `/*` inside it being read as a comment;
+      // blanking the contents would remove the very token the raw-fetch test reads.
+      out += c;
+      i += 1;
+      while (i < src.length && src[i] !== quote) {
+        if (src[i] === "\\" && i + 1 < src.length) {
+          out += src[i] + src[i + 1];
+          i += 2;
+          continue;
+        }
+        out += src[i];
+        i += 1;
+      }
+      if (i < src.length) {
+        out += quote;
+        i += 1;
+      }
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 function migrationFiles() {
   return readdirSync(join(ROOT, MIGRATIONS_DIR))
     .filter((f) => f.endsWith(".sql"))
@@ -215,6 +306,19 @@ function migrationFiles() {
 
 function readMigration(file) {
   return stripSqlComments(readFileSync(join(ROOT, MIGRATIONS_DIR, file), "utf8"));
+}
+
+/*
+ The same file, read for the capability scan instead of for the policy parser.
+
+ Separate from `readMigration` rather than a flag on it, so that the choice of literal
+ handling is made at each call site and a later edit to one parser cannot quietly change
+ what the other sees. The policy parser keeps string literals; this one loses them.
+*/
+function readMigrationForScan(file) {
+  return stripSqlComments(readFileSync(join(ROOT, MIGRATIONS_DIR, file), "utf8"), {
+    blankStrings: true,
+  });
 }
 
 // ============================================================== the function
@@ -480,7 +584,7 @@ function parseTriggers() {
       // before the ON, so the column list is whatever follows `UPDATE OF` to the end.
       const ofMatch = /\bUPDATE\s+OF\s+([^\s].*)$/i.exec(when);
       const cmdMatch = /\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/i.exec(when);
-      const body = functionBody(sql, fn);
+      const body = functionBody(file, fn);
       triggers.push({
         name,
         table,
@@ -499,16 +603,45 @@ function parseTriggers() {
   return triggers;
 }
 
-function functionBody(sql, fn) {
+/*
+ A trigger function's body, found wherever it is defined.
+
+ Two assumptions here used to be wrong in ways that failed on a correct tree:
+
+   - it searched only the migration the trigger is declared in, so a function
+     created by an earlier migration and attached by a later one read as absent;
+   - it accepted only `AS $$`, so a body quoted with a named tag (`AS $guard$`)
+     read as absent.
+
+ Both produced MISSING GUARD on a guard that is present and correct. That is the
+ safe direction for a security check and the wrong direction for a build: a check
+ that goes red on correct code is one people learn to ignore, and then it stops
+ being red on incorrect code either.
+
+ So every migration is searched, and any dollar tag is accepted. The tag has to be
+ matched on close, not just found, because `$fn$ ... $function$ ... $fn$` would
+ otherwise close on the wrong one.
+*/
+function functionBodyFor(file, fn) {
+  const sql = readMigration(file);
   const short = fn.split(".").pop();
   const decl = new RegExp(
-    `CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+(?:public\\.)"?${short}"?\\s*\\([^)]*\\)[\\s\\S]{0,240}?AS\\s+(\\$\\$)`,
+    `CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+(?:public\\.)"?${short}"?\\s*\\([^)]*\\)[\\s\\S]{0,400}?AS\\s+(\\$[A-Za-z_][A-Za-z0-9_]*\\$|\\$\\$)`,
     "i",
   ).exec(sql);
   if (!decl) return "";
+  const tag = decl[1];
   const start = decl.index + decl[0].length;
-  const end = sql.indexOf(decl[1], start);
+  const end = sql.indexOf(tag, start);
   return end === -1 ? "" : sql.slice(start, end);
+}
+
+function functionBody(file, fn) {
+  for (const candidate of migrationFiles()) {
+    const body = functionBodyFor(candidate, fn);
+    if (body) return body;
+  }
+  return "";
 }
 
 /*
@@ -573,6 +706,123 @@ function rlsCellFor(row, policies) {
   };
 }
 
+/*
+ THE POLARITY, AND WHY THIS FUNCTION EXISTS
+
+ Everything above answers "what does this row currently permit". This one answers
+ "is there a way to write or to bypass that nothing above can see", and the
+ difference between that and the old behaviour is the whole point.
+
+ The old behaviour enumerated four call shapes and reported PASS on anything else.
+ That is an allow-list, and an allow-list fails open: `ALTER TABLE ... DISABLE ROW
+ LEVEL SECURITY` makes every policy on the table decorative while the table keeps
+ reporting what the policies say, and `.rpc("escalate_my_role")` reaches a
+ SECURITY DEFINER function that bypasses RLS entirely. Neither matched the
+ enumeration, so both printed PASS. A deny-list is the opposite: name the surfaces
+ that can carry authority, and anything not accounted for is a failure.
+
+ So this scans for capability, not for syntax:
+
+   - every call on the Supabase client that is not one of the four table writes or
+     a read -- `.rpc(`, `.remove(`, `.upload(` and the rest reach PostgREST with
+     whatever authority the client holds;
+   - a raw `fetch(` carrying a mutating method, which is a write that never touches
+     the client library at all;
+   - SQL that changes who may write: `ALTER TABLE ... DISABLE ROW LEVEL SECURITY`,
+     `GRANT`/`REVOKE` to a role, and `SECURITY DEFINER` functions, each of which is
+     a bypass or a privilege change.
+
+ `FORCE ROW LEVEL SECURITY` is read and reported as narrowing, because it is the
+ opposite direction and calling it a hole would be wrong.
+
+ Anything matched that the models above do not account for is UNMODELLED SURFACE:
+ not "this looks dangerous" but "this file cannot answer who may do this here".
+*/
+const UNMODELLED_CALL = /\.\s*(rpc|remove|upload|uploadMany|createSignedUploadUrl|createSignedPostPolicyUploadUrl|createSignedUrl|getPublicUrl|download|list|move|copy|invoke|send|execute)\s*\(/gi;
+const RAW_FETCH = /\bfetch\s*\(/g;
+const MUTATING_HTTP_METHOD = /method\s*:\s*["'`](?:PATCH|POST|PUT|DELETE)["'`]/i;
+const SERVICE_ROLE_REFERENCE = /SUPABASE_SERVICE_ROLE_KEY/g;
+const RLS_TOGGLE =
+  /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"?([A-Za-z0-9_]+)"?\s+(NO\s+FORCE\s+|FORCE\s+)?(ENABLE|DISABLE)\s+ROW\s+LEVEL\s+SECURITY/gi;
+const SQL_GRANT =
+  /\b(GRANT|REVOKE)\b([\s\S]{0,200}?)\b(?:TO|FROM)\s+([A-Za-z_"][^;]*);/gi;
+// `ALTER VIEW ... OWNER TO x` is the same class as a GRANT: it changes who owns the
+// object, and the owner of a view can grant or replace it. postgres owns everything
+// here by default, so this one is declared rather than narrowed.
+const SQL_OWNER =
+  /ALTER\s+(?:TABLE|VIEW|SEQUENCE|FUNCTION|SCHEMA)\s+(?:IF\s+EXISTS\s+)?(?:public\.)?"?([A-Za-z0-9_.]+)"?\s+OWNER\s+TO\s+([A-Za-z_"][^;]*);/gi;
+const SECURITY_DEFINER_FUNCTION =
+  /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)"?([A-Za-z0-9_.]+)"?\s*\([\s\S]{0,400}?\)\s*RETURNS[\s\S]{0,200}?SECURITY\s+DEFINER/gi;
+
+function scanCapabilitySurfaces(rawSrc) {
+  const findings = [];
+  const noted = new Set();
+  const push = (kind, line, detail) => {
+    const key = `${kind}:${line}:${detail}`;
+    if (noted.has(key)) return;
+    noted.add(key);
+    findings.push({ kind, line, detail });
+  };
+
+  // Comments are blanked once, over the whole file, and everything below matches
+  // against that. stripComments preserves length and newlines, so an index found in
+  // `src` is the same index in `rawSrc` and the reported line stays right.
+  const src = stripComments(rawSrc);
+
+  for (const m of all(UNMODELLED_CALL, src)) {
+    push("call", lineAt(src, m.index), m[1].toLowerCase());
+  }
+  for (const m of all(RAW_FETCH, src)) {
+    if (MUTATING_HTTP_METHOD.test(src.slice(m.index, m.index + 400))) {
+      push("fetch", lineAt(src, m.index), "mutating method");
+    }
+  }
+
+  // The service-role key is what makes RLS irrelevant on this path, so any use of it
+  // beyond constructing the one client is worth naming. The construction itself is
+  // expected; a second use is a write that carries authority no row can describe.
+  const refs = all(SERVICE_ROLE_REFERENCE, src);
+  const constructions = refs.filter((m) => {
+    const after = src.slice(m.index, m.index + 200);
+    return /createClient\s*\(|:\s*string|process\.env/.test(after) || /=\s*process\.env/.test(src.slice(Math.max(0, m.index - 80), m.index));
+  });
+  for (const m of refs) {
+    if (constructions.includes(m)) continue;
+    push("service-role", lineAt(src, m.index), "referenced outside the client construction");
+  }
+
+  const sqlFindings = [];
+  const sqlNoted = new Set();
+  const sqlPush = (kind, file, line, detail) => {
+    const key = `${kind}:${file}:${line}:${detail}`;
+    if (sqlNoted.has(key)) return;
+    sqlNoted.add(key);
+    sqlFindings.push({ kind, file, line, detail });
+  };
+
+  for (const file of migrationFiles()) {
+    const sql = readMigrationForScan(file);
+    for (const m of all(RLS_TOGGLE, sql)) {
+      if (m[2] && /FORCE/i.test(m[2])) continue; // narrows: the owner stops bypassing RLS
+      if (/ENABLE/i.test(m[3])) continue; // the baseline every table here already has
+      sqlPush("rls-off", file, lineAt(sql, m.index), `${m[1]}: RLS disabled, no policy is consulted`);
+    }
+    for (const m of all(SQL_GRANT, sql)) {
+      const verb = m[1].toUpperCase();
+      const target = m[3].replace(/\s+/g, " ").trim();
+      sqlPush("grant", file, lineAt(sql, m.index), `${verb} ${m[2].replace(/\s+/g, " ").trim()} ${verb === "GRANT" ? "TO" : "FROM"} ${target}`);
+    }
+    for (const m of all(SQL_OWNER, sql)) {
+      sqlPush("grant", file, lineAt(sql, m.index), `ALTER ${m[1]} OWNER TO ${m[2].replace(/\s+/g, " ").trim()}`);
+    }
+    for (const m of all(SECURITY_DEFINER_FUNCTION, sql)) {
+      sqlPush("security-definer", file, lineAt(sql, m.index), m[1]);
+    }
+  }
+
+  return { findings, sqlFindings };
+}
+
 function buildModel() {
   const src = readFileSync(join(ROOT, FUNCTION_PATH), "utf8");
   const { branches, branchRanges } = parseFunction(src);
@@ -581,6 +831,7 @@ function buildModel() {
     strays: findStrayWrites(src, branchRanges),
     policies: parsePolicies(),
     triggers: parseTriggers(),
+    surfaces: scanCapabilitySurfaces(src),
   };
 }
 
@@ -593,7 +844,7 @@ function check() {
   findings.info = [];
   reported.length = 0;
 
-  const { branches, strays, policies, triggers } = buildModel();
+  const { branches, strays, policies, triggers, surfaces } = buildModel();
   const rows = [];
 
   const declaredApi = new Set(
@@ -817,6 +1068,70 @@ function check() {
     }
   }
 
+  /*
+    The deny-list. Every capability surface the scan found has to be accounted for
+    by a model above, and anything left over is a failure saying this file cannot
+    answer the question rather than a guess that it is fine.
+
+    Two ways to be accounted for, and both have to be explicit. A surface the
+    branch/policy/trigger models already describe is claimed by its row. A surface
+    they deliberately do not cover is declared in the spec with the reason it is not
+    an authorisation surface. A surface that is neither is unmodelled.
+
+    Keys are compared case-folded and whitespace-collapsed. The detail for a grant is
+    the source text of the statement, so an exact match would mean that reformatting
+    `GRANT EXECUTE` to `GRANT  execute` turns a declared surface back into a FAIL and
+    sends whoever made the whitespace change to re-read a migration to work out why
+    their build went red. A different object or a different role is still a different
+    key, which is the distinction that matters.
+  */
+  const surfaceKey = (kind, name) => `${kind}:${name.toLowerCase().replace(/\s+/g, " ").trim()}`;
+  const { findings: tsSurfaces, sqlFindings } = surfaces;
+  const declaredSurfaces = new Set(
+    DECLARED_SURFACES.map((s) => surfaceKey(s.kind, s.name)),
+  );
+
+  for (const s of tsSurfaces) {
+    if (declaredSurfaces.has(surfaceKey(s.kind, s.detail))) continue;
+    findings.fail.push(
+      `UNMODELLED SURFACE ${FUNCTION_PATH}:${s.line} reaches the database through \`${s.detail}\`, which this file does not model, so it cannot say who may do it. Model it, or declare it in DECLARED_SURFACES with the reason it is not an authorisation surface.`,
+    );
+  }
+  for (const s of sqlFindings) {
+    if (declaredSurfaces.has(surfaceKey(s.kind, s.detail))) continue;
+    const where = `${MIGRATIONS_DIR}/${s.file}:${s.line}`;
+    findings.fail.push(
+      `UNMODELLED SURFACE ${where} carries \`${s.detail}\`, which this file does not model. A privilege change, a SECURITY DEFINER function, or RLS switched off is a way to write that the policy and branch models above cannot see. Model it, or declare it in DECLARED_SURFACES with the reason it is not a widening.`,
+    );
+  }
+
+  /*
+    The other direction, and the one this check was missing. Every other declaration
+    in the spec is checked for staleness: a row with no branch, an out-of-branch write
+    with no call, a policy no migration creates. A DECLARED_SURFACES entry had no such
+    check, so a declaration outlived the surface it described and nothing said so. The
+    entry still printed in the count, so the count stayed at "15 declared" and read as
+    coverage while describing nothing.
+
+    That is the quietest version of the bug this file exists to prevent. A declaration
+    is an assertion that a specific widening is not a widening. If the widening is
+    deleted the assertion is still true and now vacuous; if the widening is replaced by
+    a different one, the assertion is false and still sitting there looking answered.
+    Both need the author to delete a line, so both are failures.
+
+    The regression test is `declared surface removed`.
+  */
+  const foundSurfaceKeys = new Set([
+    ...tsSurfaces.map((s) => surfaceKey(s.kind, s.detail)),
+    ...sqlFindings.map((s) => surfaceKey(s.kind, s.detail)),
+  ]);
+  for (const d of DECLARED_SURFACES) {
+    if (foundSurfaceKeys.has(surfaceKey(d.kind, d.name))) continue;
+    findings.fail.push(
+      `STALE DECLARATION ${d.kind} \`${d.name}\` is declared in DECLARED_SURFACES but nothing in ${FUNCTION_PATH} or ${MIGRATIONS_DIR}/*.sql matches it any more. Delete the declaration, or correct it to the surface that replaced it.`,
+    );
+  }
+
   const docPath = join(ROOT, DOC_PATH);
   if (existsSync(docPath)) {
     if (readFileSync(docPath, "utf8").trimEnd() !== renderDoc(rows).trimEnd()) {
@@ -828,7 +1143,7 @@ function check() {
     findings.fail.push(`MISSING DOC       ${DOC_PATH} does not exist. Run \`npm run authz:doc\`.`);
   }
 
-  return { rows, model: { branches, strays, policies, triggers } };
+  return { rows, model: { branches, strays, policies, triggers, surfaces } };
 }
 
 // ============================================================== the document
@@ -915,7 +1230,9 @@ function main() {
     `  ${rows.length} rows: ${count("settled")} settled, ${count("known_gap")} known gaps, ` +
       `${count("mitigated_unapplied")} mitigated-unapplied, ${count("editorially_gated")} editorially gated\n` +
       `  ${model.triggers.length} trigger(s), ${model.strays.length} write(s) outside every branch, ` +
-      `${model.branches.length} branch(es)\n\n`,
+      `${model.branches.length} branch(es), ` +
+      `${model.surfaces.sqlFindings.length + model.surfaces.findings.length} capability surface(s) scanned ` +
+      `and ${DECLARED_SURFACES.length} declared\n\n`,
   );
 
   for (const line of findings.info) process.stdout.write(`  ${line}\n`);

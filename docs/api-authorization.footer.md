@@ -2,9 +2,8 @@
 
 **Function rule** is the role test in the edge function, if there is one. `writer`
 there means there is no `profile.role` test in the branch at all: the call is gated only
-by `authenticate()` (`index.ts:61`), which admits any `bcn_` key whose profile is a
-`writer` or an `admin`. `admin` means the branch tests `profile.role !== "admin"` and
-returns 403.
+by `authenticate()`, which admits any `bcn_` key whose profile is a `writer` or an
+`admin`. `admin` means the branch tests `profile.role !== "admin"` and returns 403.
 
 **PostgREST rule** is what the live RLS policies admit for that table and command, with
 the policy names. `owner` means the policy compares the row's owner column to

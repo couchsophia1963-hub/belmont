@@ -12,12 +12,12 @@ mechanical authority for its role column, so where the two disagree, this file i
 one that has to be right.
 
 Added on BEL-235, which reported that the `weather delete` branch has no role check.
-It does have one, at `index.ts:337-341`, and it had since `d35e72a`. The part of that
-ticket worth doing was the rest of it: the function authorised per action, the answers
-did not agree, and each disagreement had been found separately by somebody reading one
-action. That is a method that finds one action per pass and only the ones somebody
-happened to look at. So the answers are written down here, and
-`scripts/check-api-authorization.mjs` fails when the code stops matching them.
+It does have one, and it had since `d35e72a`. The part of that ticket worth doing was
+the rest of it: the function authorised per action, the answers did not agree, and each
+disagreement had been found separately by somebody reading one action. That is a method
+that finds one action per pass and only the ones somebody happened to look at. So the
+answers are written down here, and `scripts/check-api-authorization.mjs` fails when the
+code stops matching them.
 
 ## The short answer
 
