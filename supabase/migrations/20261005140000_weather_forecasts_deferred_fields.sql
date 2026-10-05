@@ -183,23 +183,41 @@ commit;
 -- What is NOT settled is `authenticated`, and that is the question that matters.
 -- The admin panel writes as `authenticated`, so if its grants are column-scoped
 -- rather than table-level it can read the new columns and not write them, and
--- every admin weather save fails. Run this after the transaction above:
+-- every admin weather save fails. Run this after the transaction above. It
+-- counts columns, not rows:
 --
---   select grantee, privilege_type, count(*)
---     from information_schema.column_privileges
---    where table_schema = 'public' and table_name = 'weather_forecasts'
---    group by 1, 2 order by 1, 2;
+--   select
+--     (select count(*) from information_schema.columns c
+--       where c.table_schema = 'public' and c.table_name = 'weather_forecasts')
+--       as total_columns,
+--     (select count(distinct p.column_name)
+--        from information_schema.column_privileges p
+--       where p.table_schema = 'public' and p.table_name = 'weather_forecasts'
+--         and p.grantee = 'authenticated' and p.privilege_type = 'SELECT')
+--       as selectable_columns,
+--     (select count(distinct p.column_name)
+--        from information_schema.column_privileges p
+--       where p.table_schema = 'public' and p.table_name = 'weather_forecasts'
+--         and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')
+--       as updatable_columns;
 --
--- NO ROWS for `authenticated`  -> its grants are table-level (the Supabase
---   default) and already cover the six new columns. Stop here. Nothing to do.
+--   selectable_columns = total_columns AND updatable_columns = total_columns
+--     -> its grants are table-level (the Supabase default), granted through
+--        default privileges, and a table-level privilege covers columns added
+--        later by ALTER TABLE. They already cover the six new columns. Stop
+--        here. Nothing to do.
 --
--- ROWS for `authenticated`      -> column-scoped. Extend in this same change,
---   not as a follow-up. Grant SELECT as well as the writes, or the admin panel
---   half-works in a way that looks fine:
+--   updatable_columns lower than total_columns  -> column-scoped. Extend in this
+--     same change, not as a follow-up. Grant SELECT as well as the writes, or the
+--     admin panel half-works in a way that looks fine:
 --
---   -- grant select on public.weather_forecasts to authenticated, service_role;
---   -- grant insert, update, delete on public.weather_forecasts
---   --   to authenticated, service_role;
+--       -- grant select on public.weather_forecasts to authenticated, service_role;
+--       -- grant insert, update, delete on public.weather_forecasts
+--       --   to authenticated, service_role;
+--
+--   selectable_columns lower than total_columns while updatable_columns matches
+--     -> a write-only grant. Worse than either of the two above, because every
+--        save succeeds and nothing reads back. Same fix: grant SELECT.
 --
 -- Why `select` is not optional here. PostgREST expands `select=*` to only the
 -- columns the calling role may SELECT, and the admin panel loads the table with
@@ -211,9 +229,23 @@ commit;
 --
 -- Left commented on purpose. Which privileges that role actually needs is a
 -- person's call made after reading the check, not a migration's, and the
--- migration is written to run unattended. Note that column_privileges reports
--- column-level grants only: a row here is positive proof of column scoping, and
--- the absence of a SELECT row is what makes the read-back above break.
+-- migration is written to run unattended.
+--
+-- Do NOT test this by asking whether `information_schema.column_privileges`
+-- returns rows. It always does: a table-level GRANT is reported there too,
+-- expanded one row per column, and the table owner appears with its implicit
+-- privileges whether or not anything was ever granted. An empty result means
+-- something is wrong with the query, not that the grants are narrow. The absence
+-- of a SELECT row is likewise not a finding on its own -- it is only meaningful
+-- once `selectable_columns` is known to be lower than `total_columns`. This
+-- section used to read "column_privileges reports column-level grants only: a row
+-- here is positive proof of column scoping", which is the inversion BEL-329
+-- records, and on a project whose grants are wide open -- which is Belmont News
+-- -- it reads as a false STOP. The corrected form of this query is in
+-- `20261005190000_profiles_role_not_self_assignable.sql` section 4, learned
+-- against a real PostgreSQL 18, and
+-- `20261005170000_weather_forecasts_admin_delete.sql` section 4 fixes the third
+-- copy in the same apply on BEL-48 (PR #50).
 --
 -- `weather_public_read` is `TO anon, authenticated USING (true)`, and the
 -- homepage strip reads these columns as anon. So whatever the answer to the
