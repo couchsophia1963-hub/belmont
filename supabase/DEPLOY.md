@@ -93,7 +93,17 @@ comparison will show two false mismatches:
 | `20261005140000_weather_forecasts_deferred_fields.sql` | `20261005140000` |
 | `20261005150000_author_profiles_fk.sql` | `20261005150000` |
 | `20261005160000_comments_public_view.sql` | `20261005160000` |
+| `20261005170000_weather_forecasts_admin_delete.sql` | `20261005170000` |
 | `20261005203000_stories_admin_delete_published_guard.sql` (PR #15, not on `main` yet) | `20261005203000` |
+
+**Watch out for one collision.** `20261005170000` is now a real *version* — the
+weather delete policy — and it is also the string embedded in the *name* of
+`20261005115049_20261005170000_stories_writer_select_all.sql.sql`. Reading the
+`name` column of `schema_migrations` gives you a row that reads
+`20261005170000_stories_writer_select_all.sql`, which looks like the weather
+migration and is not. This is the concrete version of the caution above, and it is
+why `supabase migration list` comparing timestamps only is a relief rather than a
+limitation.
 
 Do not rename the two odd files. A migration that has been applied has a history
 tied to its filename, and renaming it desynchronises that. They are ugly; they
@@ -141,8 +151,15 @@ Every migration in this directory, audited for what happens if it runs against a
 project that already has the schema. This was the open question in BEL-180 and it
 is answered here.
 
-**Summary: all seven are replay-tolerant in form. Two can still fail, and one can
-leave the project in a worse state than not pushing at all.**
+**This audit has a shelf life.** Migrations are being merged into `main` while
+this file is open for review. It was accurate against `main` at `63f543c`, seven
+files, and `20261005170000` arrived after it was written. **Re-run the file list
+before you trust the table** — `ls supabase/migrations/` is the authority, and the
+three-command preflight below catches anything that arrived since.
+
+**Summary: replay-tolerant in form, all of them. Two can still fail on live data.
+One can leave the project in a worse state than not pushing at all. One could not
+be replayed at all until PR #27.**
 
 | # | file | verdict |
 | --- | --- | --- |
@@ -152,7 +169,8 @@ leave the project in a worse state than not pushing at all.**
 | 4 | `20261005140000_weather_forecasts_deferred_fields` | **can fail** on the icon constraint |
 | 5 | `20261005150000_author_profiles_fk` | **can fail** on orphan rows |
 | 6 | `20261005160000_comments_public_view` | tolerant; probably never applied |
-| 7 | `20261005203000_..._published_guard` (PR #15) | tolerant; its post-check needs a rollback |
+| 7 | `20261005170000_weather_forecasts_admin_delete` | **was not replayable** — fixed in PR #27 |
+| 8 | `20261005203000_..._published_guard` (PR #15) | tolerant; its post-check needs a rollback |
 
 ### 1. `20261004123918_create_belmont_news_schema.sql`
 
@@ -294,7 +312,38 @@ exposure is live right now and this migration is the fix. That is worth doing
 before the rest of this procedure, as its own change, rather than bundled into a
 first push that also touches four other tables.
 
-### 7. `20261005203000_stories_admin_delete_published_guard.sql` (PR #15)
+### 7. `20261005170000_weather_forecasts_admin_delete.sql`
+
+**This one could not be replayed.** Fixed in
+[PR #27](https://github.com/couchsophia1963-hub/belmont/pull/27); the notes below
+describe it as it stood on `main` at `63f543c`, because the failure mode is the
+point.
+
+The file drops `weather_writer_delete` and creates `weather_admin_delete`. It never
+drops `weather_admin_delete`. So a second run fails:
+
+```
+ERROR:  policy "weather_admin_delete" for table "weather_forecasts" already exists
+SQLSTATE 42710
+```
+
+Every other `CREATE POLICY` in this directory is preceded by a
+`DROP POLICY IF EXISTS` carrying the same name. This file was the only one of the
+seven on `main` that was not, which is why it reads as a deviation rather than a
+choice.
+
+Why that mattered: BEL-180's scenario is a **replay**, because these migrations
+were largely applied by hand and are therefore not recorded. This file was the one
+that would have stopped the replay, and `20261005170000` sorts last, so it was the
+final file to abort — after six had committed. Nothing dangerous is stranded in
+that particular case, because file 6 closes `comments_public_read` and file 6 has
+already run by then. But the push fails, and BEL-180's acceptance is that
+`db push --dry-run` runs clean.
+
+The fix is one line and is `IF EXISTS`, so it is inert on a project where the
+policy has never been created.
+
+### 8. `20261005203000_stories_admin_delete_published_guard.sql` (PR #15)
 
 Not on `main` yet. Tolerant: `DROP POLICY IF EXISTS` + `CREATE POLICY`, and it
 creates no column and grants nothing to any role, so it cannot reopen the BEL-15
