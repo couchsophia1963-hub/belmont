@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { isCommentsViewMissing } from '@/lib/commentsViewMissing';
@@ -22,6 +22,37 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   const [body, setBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The story currently on screen, readable at the moment a write settles
+  // without scheduling a render of its own.
+  //
+  // The effect below clears the write error on the transition, which covers a
+  // failure that has already arrived. It cannot cover one that arrives after:
+  // the reader deleted a comment, the effect ran while the delete was still in
+  // flight and cleared an error that did not exist yet, and the rejection then
+  // landed on whatever story the reader had moved to. Same cross-story leak
+  // #17 removed, reachable whenever the reader navigates inside the latency of
+  // their own write.
+  //
+  // A ref rather than an id held in state: the value is only ever read at settle
+  // time and never rendered, so storing it would add state that exists to be
+  // compared rather than to be shown. Assigned during render rather than in the
+  // effect, because the settle can beat the effect — the effect is a separate
+  // task, and a rejection is a microtask.
+  const storyOnScreen = useRef(storyId);
+  storyOnScreen.current = storyId;
+
+  // A write error describes an action on one story, so it is shown only while
+  // that story is the one on screen. Once the reader has left, there is nowhere
+  // inside this section to say it truthfully: the banner would describe a delete
+  // the reader cannot see, on a page they are not on. Dropping it is the honest
+  // option here, and it is a narrow loss — the write failed against a comment on
+  // a story they have moved off, and a failure on the story they are reading
+  // still shows.
+  const reportWriteError = (writeStoryId: string, message: string) => {
+    if (writeStoryId !== storyOnScreen.current) return;
+    setError(message);
+  };
 
   const loadComments = async () => {
     const { data, error: queryError } = await supabase
@@ -78,7 +109,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
       .insert({ story_id: storyId, body: body.trim() });
 
     if (insertError) {
-      setError(insertError.message);
+      reportWriteError(storyId, insertError.message);
       setSubmitting(false);
       return;
     }
@@ -95,7 +126,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
       .eq('id', commentId);
 
     if (deleteError) {
-      setError(deleteError.message);
+      reportWriteError(storyId, deleteError.message);
       return;
     }
     await Promise.all([loadComments(), loadDeletableIds()]);
