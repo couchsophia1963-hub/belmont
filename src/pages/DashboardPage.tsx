@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { writeOutcome, writeFailureMessage } from '@/lib/writeOutcome';
 import type { ApiKey, Profile, Story, UserRole } from '@/types';
 import {
   CONDITION_OPTIONS,
@@ -87,20 +88,33 @@ function UserDashboard({
   const [displayName, setDisplayName] = useState(profile.display_name);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const { error } = await supabase
+    setSaveError(null);
+
+    // This path writes the caller's own row, so profiles_owner_update admits it
+    // and it should always succeed. The check is here because the failure mode
+    // is the same as the role editor's, and "Saved!" on a refused write is the
+    // thing that made the role dropdown worth reporting.
+    const { data, error } = await supabase
       .from('profiles')
       .update({ display_name: displayName })
-      .eq('id', profile.id);
+      .eq('id', profile.id)
+      .select('id');
+
+    const outcome = writeOutcome(data, error);
     setSaving(false);
-    if (!error) {
-      setSaved(true);
-      await refreshProfile();
-      setTimeout(() => setSaved(false), 2000);
+
+    if (!outcome.ok) {
+      setSaveError(writeFailureMessage(outcome, 'display name'));
+      return;
     }
+    setSaved(true);
+    await refreshProfile();
+    setTimeout(() => setSaved(false), 2000);
   };
 
   return (
@@ -108,6 +122,11 @@ function UserDashboard({
       <SectionHeader icon={<UserIcon className="w-5 h-5" />} title="Profile Settings" />
       <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm p-6">
         <form onSubmit={handleSave} className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
+          {saveError && (
+            <div className="flex-1 w-full mb-4 p-3 rounded-lg bg-error-500/10 border border-error-500/30">
+              <p className="text-error-700 font-sans text-sm">{saveError}</p>
+            </div>
+          )}
           <div className="flex-1 w-full">
             <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
               Display Name
@@ -145,6 +164,7 @@ function WriterDashboard({ userId }: { userId: string }) {
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
 
   const loadApiKeys = useCallback(async () => {
     const { data, error } = await supabase
@@ -184,6 +204,7 @@ function WriterDashboard({ userId }: { userId: string }) {
     e.preventDefault();
     if (!newKeyName.trim()) return;
     setCreating(true);
+    setKeyError(null);
 
     const rawKey = generateApiKey();
     const prefix = rawKey.substring(0, 12);
@@ -195,8 +216,10 @@ function WriterDashboard({ userId }: { userId: string }) {
     });
 
     setCreating(false);
+    // INSERT is not routed through writeOutcome: a row failing api_keys_owner_insert's
+    // WITH CHECK raises an error instead of being suppressed.
     if (error) {
-      alert('Failed to create API key: ' + error.message);
+      setKeyError('Failed to create API key: ' + error.message);
       return;
     }
     setNewKey(rawKey);
@@ -208,12 +231,23 @@ function WriterDashboard({ userId }: { userId: string }) {
     if (!confirm('Generate a new key? The old key will stop working immediately.')) return;
     const rawKey = generateApiKey();
     const prefix = rawKey.substring(0, 12);
-    const { error } = await supabase
+
+    // There is NO UPDATE policy on api_keys anywhere in supabase/migrations --
+    // only owner_read, owner_insert and owner_delete. So this statement is
+    // refused for every caller, filtered to zero rows, and reported as a
+    // success. It is the worst instance of this bug class in the app: the panel
+    // displays the new key as if it were live, the user copies it into their
+    // publisher, and the old key keeps authenticating. The database is correct;
+    // the panel is lying about a credential.
+    const { data, error } = await supabase
       .from('api_keys')
       .update({ key_hash: rawKey, key_prefix: prefix })
-      .eq('id', keyId);
-    if (error) {
-      alert('Failed to reroll key: ' + error.message);
+      .eq('id', keyId)
+      .select('id');
+
+    const outcome = writeOutcome(data, error);
+    if (!outcome.ok) {
+      setKeyError(writeFailureMessage(outcome, 'API key'));
       return;
     }
     setNewKey(rawKey);
@@ -222,9 +256,15 @@ function WriterDashboard({ userId }: { userId: string }) {
 
   const handleDeleteKey = async (keyId: string) => {
     if (!confirm('Delete this API key? This cannot be undone.')) return;
-    const { error } = await supabase.from('api_keys').delete().eq('id', keyId);
-    if (error) {
-      alert('Failed to delete key: ' + error.message);
+    const { data, error } = await supabase
+      .from('api_keys')
+      .delete()
+      .eq('id', keyId)
+      .select('id');
+
+    const outcome = writeOutcome(data, error);
+    if (!outcome.ok) {
+      setKeyError(writeFailureMessage(outcome, 'API key'));
       return;
     }
     await loadApiKeys();
@@ -245,6 +285,19 @@ function WriterDashboard({ userId }: { userId: string }) {
           <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mb-4">
             Use your API keys to programmatically manage stories and weather via the REST API.
           </p>
+
+          {keyError && (
+            <div className="mb-4 p-3 rounded-lg bg-error-500/10 border border-error-500/30 flex items-start justify-between gap-3">
+              <p className="text-error-700 font-sans text-sm">{keyError}</p>
+              <button
+                onClick={() => setKeyError(null)}
+                className="text-error-600 flex-shrink-0"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {newKey && (
             <div className="mb-6 p-4 rounded-lg bg-success-500/10 border border-success-500/30">
@@ -559,16 +612,25 @@ function WeatherManagement() {
         payload.wind_min = f.wind_min;
         payload.wind_max = f.wind_max;
       }
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('weather_forecasts')
         .update(payload)
-        .eq('id', f.id);
+        .eq('id', f.id)
+        .select('id');
+
       // Every other write in this dashboard already checks its error. This one
       // did not, so every row could fail and the button still said "Saved!" --
       // an editor would leave believing the forecast was published. Keep this
       // check: it is what turns a silent wrong success into a visible failure,
       // and it is what would catch a PGRST204 if the payload regressed.
-      if (error) failures.push(`${f.forecast_date}: ${error.message}`);
+      const outcome = writeOutcome(data, error);
+      if (!outcome.ok) {
+        failures.push(
+          outcome.reason === 'refused'
+            ? `${f.forecast_date}: refused by a database policy, nothing was saved`
+            : `${f.forecast_date}: ${outcome.message}`,
+        );
+      }
     }
     setSaving(false);
     if (failures.length > 0) {
@@ -800,6 +862,7 @@ function AdminDashboard() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     const { data } = await supabase
@@ -816,13 +879,36 @@ function AdminDashboard() {
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     setUpdating(userId);
-    const { error } = await supabase
+    setRoleError(null);
+
+    // Confirmed against the migrations, not inferred: profiles_owner_update is
+    //   USING (auth.uid() = id) WITH CHECK (auth.uid() = id)
+    // and there is no admin UPDATE policy on profiles anywhere in
+    // supabase/migrations. So this write targets ANOTHER user's row, the policy
+    // filters it out, PostgREST returns 204 with zero rows, error is null, and
+    // loadUsers() snaps the dropdown back to the old role. An admin has been
+    // unable to promote anyone through this panel, and the panel reported each
+    // attempt as a success.
+    //
+    // The check below makes that visible. It does NOT make the write work --
+    // granting admins UPDATE on profiles is what would, and that widens them to
+    // every column including email and id, so it is a migration decision and not
+    // a frontend one. Tracked as its own finding, not fixed here.
+    const { data, error } = await supabase
       .from('profiles')
       .update({ role: newRole })
-      .eq('id', userId);
+      .eq('id', userId)
+      .select('id');
+
+    const outcome = writeOutcome(data, error);
     setUpdating(null);
-    if (error) {
-      alert('Failed to update role: ' + error.message);
+
+    if (!outcome.ok) {
+      setRoleError(
+        outcome.reason === 'refused'
+          ? 'Not saved. A database policy refused this role change, so the user kept their current role. Promoting someone needs an admin update path that does not exist yet.'
+          : writeFailureMessage(outcome, 'role'),
+      );
       return;
     }
     await loadUsers();
@@ -835,6 +921,12 @@ function AdminDashboard() {
         <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mb-4">
           Manage user roles and permissions across the platform.
         </p>
+
+        {roleError && (
+          <div className="mb-4 p-3 rounded-lg bg-error-500/10 border border-error-500/30">
+            <p className="text-error-700 font-sans text-sm">{roleError}</p>
+          </div>
+        )}
 
         {loading ? (
           <div className="h-32 rounded-lg shimmer" />
