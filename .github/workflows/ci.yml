@@ -18,6 +18,33 @@ concurrency:
 permissions:
   contents: read
 
+# `NODE_ENV` is pinned once, at the workflow level, so it reaches every step
+# including `npm ci`. Two distinct failures come from inheriting it from the
+# runner, and the larger one starts at install rather than at test:
+#
+#   1. `npm ci` under NODE_ENV=production drops devDependencies. Verified
+#      against this lockfile: 356 packages removed, including vitest,
+#      typescript, eslint, jsdom and @testing-library. On a cold runner that is
+#      `tsc: not found`, `eslint: not found`, `vitest: not found`, so the job
+#      cannot run any of its first three gates.
+#   2. Even with a warm node_modules, React resolves to its production bundle
+#      under NODE_ENV=production, where `act` is a no-op, and every test that
+#      renders a component fails with "act(...) is not supported in production
+#      builds of React".
+#
+# GitHub-hosted runners default to unset, so the job is green either way today.
+# That is the problem rather than the comfort: a gate that passes for the wrong
+# reason reports coverage it is not providing. Pinning it makes the result a
+# function of the commit instead of a function of the machine.
+#
+# This is top-level `env` and not `jobs.<id>.defaults.run.env` on purpose. The
+# latter is not valid workflow schema -- `defaults.run` accepts only `shell` and
+# `working-directory` -- and GitHub rejects the whole file over it. A per-step
+# `env:` on the Test step alone would also be wrong, because failure (1) starts
+# at `npm ci` and that step would still inherit the runner's value.
+env:
+  NODE_ENV: test
+
 jobs:
   verify:
     name: typecheck, lint, test, build
