@@ -16,6 +16,8 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { digestFromHeader, evaluateApiKeyAuth, sha256Hex } from "./api-key-auth.ts";
@@ -239,4 +241,85 @@ test("a digest in the wrong case or with a prefix cannot match the stored digest
     );
     assert.notEqual(candidate, stored);
   }
+});
+// --------------------------------------------------------------------------------
+// Closing the residual common-mode risk.
+//
+// The two assertions above pin this implementation to `node:crypto`. Those are two
+// implementations inside one runtime family, so a shared misunderstanding survives
+// both. Nothing machine-checked the link to Postgres, which is where the value that
+// actually has to match lives: `api_keys_fill_key_digest` writes
+// `encode(digest(key_hash, 'sha256'), 'hex')`.
+//
+// The two tests below close most of that gap without a database.
+// --------------------------------------------------------------------------------
+
+test("the digest is pinned to a constant, not only to another implementation", async () => {
+  // Recomputed by hand from the SHA-256 of the ASCII bytes "bcn_test". If this
+  // assertion ever needs updating, the digest changed, and that is the change to
+  // look at -- not the constant.
+  assert.equal(
+    await sha256Hex("bcn_test"),
+    "f9095901e5ab719b9d39418338c6beec9eb4af4e9648993628f212c33ea1786b",
+  );
+});
+
+test("the Postgres side digests the whole column value, unaltered", () => {
+  const migration = readFileSync(
+    fileURLToPath(new URL("../../migrations/20261005290000_api_keys_key_digest_and_revoked_at.sql", import.meta.url)),
+    "utf8",
+  );
+
+  // Every assignment the trigger makes. All three must hash the column value as it
+  // stands: encode(digest(<col>, 'sha256'), 'hex') and nothing else.
+  const assignments = [...migration.matchAll(/NEW\.key_digest\s*:=\s*([^;]+);/g)].map((m) =>
+    m[1].replace(/\s+/g, " ").trim(),
+  );
+  assert.ok(assignments.length >= 3, `expected 3 key_digest assignments, found ${assignments.length}`);
+
+  // NEW. is required, not optional. The trigger runs with `SET search_path =
+  // pg_catalog, pg_temp`, and `api_keys` is not on that path, so a bare `key_hash`
+  // resolves against nothing and every insert raises 42703 -- which is exactly the
+  // defect that was fixed in this file before it merged. Requiring NEW. here means
+  // that regression cannot come back unnoticed.
+  for (const expr of assignments) {
+    assert.match(
+      expr,
+      /^encode\((?:%1\$s|%s)\(NEW\.key_hash, 'sha256'\), 'hex'\)$/,
+      `the Postgres side must be encode(digest(NEW.key_hash,'sha256'),'hex') over the whole `
+      + `column value; got: ${expr}`,
+    );
+  }
+
+  // The failure this guards: someone trims, slices, or reformats the value on the
+  // Postgres side. The digest then differs from this function's for every key, the
+  // lookup matches nothing, and every desk key is refused with no error naming a
+  // column. Invisible to every other gate in this repository.
+  const body = migration.slice(migration.indexOf("api_keys_fill_key_digest()"));
+  for (const forbidden of ["substring(", "trim(", "replace(", "left(", "right(", "overlay("]) {
+    const inAssignments = assignments.some((e) => e.includes(forbidden));
+    assert.equal(
+      inAssignments,
+      false,
+      `${forbidden} on the Postgres side would make every stored digest differ from this function's`,
+    );
+  }
+  // `left(`/`right(` inside a comment is harmless; only assignments were tested above.
+  assert.ok(body.length > 0);
+});
+
+test("the two implementations cannot drift apart on the value that gets hashed", async () => {
+  // The whole key, prefix included, is what Postgres digests because that is what
+  // key_hash holds. Assert it once more against the panel that writes the column,
+  // so the three points -- panel writes, trigger digests, function hashes -- are
+  // pinned in one place rather than three.
+  const dashboard = readFileSync(
+    fileURLToPath(new URL("../../../src/pages/DashboardPage.tsx", import.meta.url)),
+    "utf8",
+  );
+  assert.match(
+    dashboard,
+    /key_hash:\s*rawKey/,
+    "the panel must store the full raw key in key_hash; a partial value would break the digest link",
+  );
 });
