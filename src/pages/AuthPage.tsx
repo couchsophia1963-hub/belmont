@@ -55,17 +55,17 @@ export function AuthPage() {
           <div className="inline-flex w-16 h-16 rounded-2xl bg-primary-700 items-center justify-center mb-4 shadow-lg">
             <Newspaper className="w-9 h-9 text-white" />
           </div>
-          <h1 className="font-serif text-3xl font-black text-stone-900">
+          <h1 className="font-serif text-3xl font-black text-stone-900 dark:text-stone-50">
             {isSignUp ? 'Create Account' : 'Welcome Back'}
           </h1>
-          <p className="font-sans text-sm text-stone-500 mt-2">
+          <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mt-2">
             {isSignUp
               ? 'Join the Belmont County News community'
               : 'Sign in to comment and manage your account'}
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-lg border border-stone-200 p-8">
+        <div className="bg-white dark:bg-stone-900 rounded-2xl shadow-lg border border-stone-200 dark:border-stone-700 p-8">
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-error-500/10 border border-error-500/30 flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-error-600 flex-shrink-0 mt-0.5" />
@@ -76,17 +76,17 @@ export function AuthPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignUp && (
               <div>
-                <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+                <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
                   Display Name
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400 dark:text-stone-500" />
                   <input
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     required
-                    className="w-full pl-11 pr-4 py-3 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                    className="w-full pl-11 pr-4 py-3 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                     placeholder="Your name"
                   />
                 </div>
@@ -94,35 +94,35 @@ export function AuthPage() {
             )}
 
             <div>
-              <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+              <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
                 Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400 dark:text-stone-500" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full pl-11 pr-4 py-3 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                  className="w-full pl-11 pr-4 py-3 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                   placeholder="you@example.com"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+              <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400 dark:text-stone-500" />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="w-full pl-11 pr-4 py-3 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                  className="w-full pl-11 pr-4 py-3 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                   placeholder="••••••••"
                 />
               </div>
@@ -141,7 +141,7 @@ export function AuthPage() {
           <div className="mt-6 text-center">
             <button
               onClick={switchMode}
-              className="font-sans text-sm text-primary-700 hover:underline"
+              className="font-sans text-sm text-primary-700 dark:text-primary-400 hover:underline"
             >
               {isSignUp
                 ? 'Already have an account? Sign in'
@@ -153,7 +153,7 @@ export function AuthPage() {
         <p className="text-center mt-4">
           <Link
             to="/"
-            className="font-sans text-sm text-stone-500 hover:text-stone-700"
+            className="font-sans text-sm text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
           >
             ← Back to home
           </Link>

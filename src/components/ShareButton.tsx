@@ -101,17 +101,17 @@ export function ShareButton({ slug, title, variant = 'default' }: ShareButtonPro
     <div
       ref={menuRef}
       style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 9999 }}
-      className="bg-white rounded-lg shadow-xl border border-stone-200 py-1 min-w-[170px]"
+      className="bg-white dark:bg-stone-800 rounded-lg shadow-xl border border-stone-200 dark:border-stone-600 py-1 min-w-[170px]"
     >
-      <button onClick={openFacebook} className="w-full px-4 py-2 flex items-center gap-2 text-sm text-stone-700 hover:bg-stone-50 transition-colors">
+      <button onClick={openFacebook} className="w-full px-4 py-2 flex items-center gap-2 text-sm text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors">
         <Facebook className="w-4 h-4 text-[#1877f2]" />
         Facebook
       </button>
-      <button onClick={openTwitter} className="w-full px-4 py-2 flex items-center gap-2 text-sm text-stone-700 hover:bg-stone-50 transition-colors">
-        <Twitter className="w-4 h-4 text-stone-900" />
+      <button onClick={openTwitter} className="w-full px-4 py-2 flex items-center gap-2 text-sm text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors">
+        <Twitter className="w-4 h-4 text-stone-900 dark:text-stone-100" />
         Twitter / X
       </button>
-      <button onClick={copyLink} className="w-full px-4 py-2 flex items-center gap-2 text-sm text-stone-700 hover:bg-stone-50 transition-colors">
+      <button onClick={copyLink} className="w-full px-4 py-2 flex items-center gap-2 text-sm text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors">
         {copied ? <Check className="w-4 h-4 text-success-600" /> : <Copy className="w-4 h-4" />}
         {copied ? 'Copied!' : 'Copy Link'}
       </button>
@@ -124,7 +124,7 @@ export function ShareButton({ slug, title, variant = 'default' }: ShareButtonPro
         <button
           ref={btnRef}
           onClick={handleShareClick}
-          className="relative p-1.5 rounded-lg text-stone-400 hover:text-primary-700 hover:bg-primary-50 transition-colors bg-white/80 backdrop-blur-sm shadow-sm"
+          className="relative p-1.5 rounded-lg text-stone-400 hover:text-primary-700 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-colors bg-white/80 dark:bg-stone-800/80 backdrop-blur-sm shadow-sm"
           title="Share"
         >
           <Share2 className="w-4 h-4" />
@@ -139,7 +139,7 @@ export function ShareButton({ slug, title, variant = 'default' }: ShareButtonPro
       <button
         ref={btnRef}
         onClick={handleShareClick}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-sans text-sm font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 transition-colors"
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-sans text-sm font-bold text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900/50 transition-colors"
       >
         <Share2 className="w-4 h-4" />
         Share

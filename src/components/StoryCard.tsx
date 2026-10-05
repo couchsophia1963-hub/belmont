@@ -14,7 +14,7 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
 
   if (variant === 'compact') {
     return (
-      <div className="group flex gap-4 items-start py-4 border-b border-stone-200 last:border-0 transition-colors hover:bg-stone-50 -mx-2 px-2 rounded-lg">
+      <div className="group flex gap-4 items-start py-4 border-b border-stone-200 dark:border-stone-700 last:border-0 transition-colors hover:bg-stone-50 dark:hover:bg-stone-800/50 -mx-2 px-2 rounded-lg">
         <Link to={storyPath(story.slug)} className="flex gap-4 items-start min-w-0 flex-1">
           {story.image_url && (
             <img
@@ -24,13 +24,13 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
             />
           )}
           <div className="min-w-0 flex-1">
-            <span className="font-sans text-xs font-bold uppercase tracking-wider text-primary-600">
+            <span className="font-sans text-xs font-bold uppercase tracking-wider text-primary-600 dark:text-primary-400">
               {story.category}
             </span>
-            <h4 className="font-serif text-base font-bold text-stone-900 leading-snug mt-1 group-hover:text-primary-700 transition-colors line-clamp-2">
+            <h4 className="font-serif text-base font-bold text-stone-900 dark:text-stone-50 leading-snug mt-1 group-hover:text-primary-700 dark:group-hover:text-primary-400 transition-colors line-clamp-2">
               {story.title}
             </h4>
-            <span className="font-sans text-xs text-stone-400 mt-1 block">{timeAgo}</span>
+            <span className="font-sans text-xs text-stone-400 dark:text-stone-500 mt-1 block">{timeAgo}</span>
           </div>
         </Link>
         <ShareButton slug={story.slug} title={story.title} variant="compact" />
@@ -39,7 +39,7 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
   }
 
   return (
-    <div className="group block bg-white rounded-xl shadow-sm border border-stone-200 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative">
+    <div className="group block bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-700 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative">
       <Link to={storyPath(story.slug)} className="block">
         {story.image_url && (
           <div className="relative overflow-hidden h-48 rounded-t-xl">
@@ -54,12 +54,12 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
           </div>
         )}
         <div className="p-5">
-          <h3 className="font-serif text-xl font-bold text-stone-900 leading-tight group-hover:text-primary-700 transition-colors line-clamp-2">
+          <h3 className="font-serif text-xl font-bold text-stone-900 dark:text-stone-50 leading-tight group-hover:text-primary-700 dark:group-hover:text-primary-400 transition-colors line-clamp-2">
             {story.title}
           </h3>
-          <p className="font-sans text-sm text-stone-600 mt-2 line-clamp-3">{story.excerpt}</p>
+          <p className="font-sans text-sm text-stone-600 dark:text-stone-400 mt-2 line-clamp-3">{story.excerpt}</p>
           <div className="flex items-center justify-between mt-3">
-            <div className="flex items-center gap-2 font-sans text-xs text-stone-400">
+            <div className="flex items-center gap-2 font-sans text-xs text-stone-400 dark:text-stone-500">
               <Clock className="w-3.5 h-3.5" />
               <span>{timeAgo}</span>
             </div>

@@ -88,8 +88,8 @@ export function HomePage() {
 
       <div>
         <div className="flex items-center gap-2 mb-6">
-          <TrendingUp className="w-5 h-5 text-primary-700" />
-          <h2 className="font-serif text-2xl font-bold text-stone-900">Recent Stories</h2>
+          <TrendingUp className="w-5 h-5 text-primary-700 dark:text-primary-400" />
+          <h2 className="font-serif text-2xl font-bold text-stone-900 dark:text-stone-50">Recent Stories</h2>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {gridStories.map((story) => (
@@ -100,8 +100,8 @@ export function HomePage() {
 
       {sidebarStories.length > 0 && (
         <div className="mt-10">
-          <div className="bg-stone-100 rounded-xl p-5">
-            <h3 className="font-serif text-lg font-bold text-stone-900 mb-2 pb-3 border-b-2 border-primary-700">
+          <div className="bg-stone-100 dark:bg-stone-900 rounded-xl p-5">
+            <h3 className="font-serif text-lg font-bold text-stone-900 dark:text-stone-50 mb-2 pb-3 border-b-2 border-primary-700 dark:border-primary-600">
               More Headlines
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0">

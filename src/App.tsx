@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/lib/auth';
+import { ThemeProvider } from '@/lib/theme';
 import { Header, Footer } from '@/components/Layout';
 import { HomePage } from '@/pages/HomePage';
 import { StoryDetailPage } from '@/pages/StoryDetailPage';
@@ -10,6 +11,7 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 
 function App() {
   return (
+    <ThemeProvider>
     <AuthProvider>
       {/* BrowserRouter, not HashRouter (BEL-92). The host returns index.html
           for any path, so `/story/<slug>` reaches this router and renders the
@@ -19,7 +21,7 @@ function App() {
           The cost of BrowserRouter is that the host must serve index.html for
           unknown paths; this one does, verified 2026-10-05. */}
       <BrowserRouter>
-        <div className="min-h-screen flex flex-col bg-stone-50">
+        <div className="min-h-screen flex flex-col bg-stone-50 dark:bg-stone-950">
           <Header />
           <main className="flex-1">
             <Routes>
@@ -38,6 +40,7 @@ function App() {
         </div>
       </BrowserRouter>
     </AuthProvider>
+    </ThemeProvider>
   );
 }
 
