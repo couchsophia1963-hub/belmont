@@ -190,22 +190,29 @@ function WriterDashboard({ userId }: { userId: string }) {
 
   // Generate a bearer key from the platform CSPRNG.
   //
-  // This used to build the key from `Math.random()`, which is not one. V8 does not
-  // seed `Math.random()` from the operating system entropy source, and its output
-  // can be reconstructed from a small number of observed draws, so a key assembled
-  // from it is not an unguessable secret -- it is an obfuscated one. That is a
-  // defect in the credential itself, so it cannot be repaired later by storing the
-  // key differently; the material has to come from the right generator on the way
-  // in.
+  // This used to build the key from `Math.random()`, which is not a CSPRNG. V8 runs xorshift128+,
+  // which is seeded from the operating system (`RandomNumberGenerator` reads /dev/urandom on Linux
+  // and arc4random_buf on Darwin) but holds only 128 bits of state, and V8 says so itself: "even
+  // though xorshift128+ is a huge improvement over MWC1616, it is still not cryptographically
+  // secure." The state is recoverable from a handful of observed draws, so a key assembled from it is
+  // an obfuscated one rather than a secret. That is a defect in the credential itself, so it cannot
+  // be repaired later by storing the key differently; the material has to come from the right
+  // generator on the way in.
   //
-  // `crypto.getRandomValues` is available in every browser this panel runs in, is
-  // the source the Web Crypto specification exists for, and adds no dependency.
-  // Rotation (`handleRerollKey`) calls this same function, so rotating now yields
-  // properly random material where it previously re-rolled a weak key.
+  // Note the seeding is not the reason. An earlier version of this comment claimed V8 does not seed
+  // Math.random() from the OS at all. That is not true of current V8 and the next reader who
+  // checks it will find it false. The state size is the argument, and it is V8's own.
   //
-  // Does this rotate anything? No. It changes how a key is generated, not what is
-  // stored, so no stored credential is invalidated and no caller has to be given a
-  // replacement. Storage is the separate, sequenced change recorded on BEL-273.
+  // `crypto.getRandomValues` is available in every browser this panel runs in, is the source the
+  // Web Crypto specification exists for, and adds no dependency. It is available in insecure
+  // contexts too, so plain-HTTP hosting is not a constraint either.
+  //
+  // Rotation (`handleRerollKey`) calls this same function, so rotating now yields properly random
+  // material where it previously re-rolled a weak key.
+  //
+  // Does this rotate anything? No. It changes how a key is generated, not what is stored, so no
+  // stored credential is invalidated and no caller has to be given a replacement. Storage is the
+  // separate, sequenced change recorded on BEL-273.
   const generateApiKey = (): string => {
     let body = '';
     while (body.length < KEY_BODY_LENGTH) {
