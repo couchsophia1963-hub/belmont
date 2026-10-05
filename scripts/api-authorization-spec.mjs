@@ -42,8 +42,43 @@
                      the observed state changes at all the check says so and asks
                      for the spec to be updated -- that is how a gap gets closed.
    editorially_gated The newsroom answered this one in an editorial document, not
-                     in code. Reported, never failed, never used to justify a code
-                     change. Engineering does not get to settle these alone.
+                     in code, and the code is meant to carry no gate for it.
+                     Reported, never failed. Engineering does not get to settle these
+                     alone.
+   mitigated_unapplied
+                     The repository contains a control that closes the gap, and the
+                     migration that carries it has not been applied to the live
+                     database. Reported, never failed, because merging is not applying
+                     and this table records the repository, not the database. A
+                     `columnGuards` entry on such a row is still asserted: if the
+                     trigger disappears from the migrations, that fails.
+
+ Rows in any status other than `settled` print on every run, on both surfaces, and the
+ printing is itself asserted. A gap that only prints for one surface, or that stops
+ printing because the reporting path changed, is a gap that looks closed.
+
+ STATUS VALUES THAT ARE NOT ROW STATUSES
+
+   `unknown`   what this file reports when it will not guess: a role test it does not
+               recognise, a command covered by more than one permissive policy, a
+               restrictive policy, or a policy expression that is not a rule it knows.
+               `unknown` is never a passing result. A `settled` row that reads
+               `unknown` fails.
+
+ ROW SHAPES
+
+   surface       `api` for a row about the edge function, `postgrest` for a row about
+                 a table. An `api` row names the RLS row that governs the same
+                 mutation for a signed-in session, so the two can be compared.
+   functionRule  what the branch enforces: `admin` for a `profile.role !== "admin"`
+                 test, `writer` for no role test at all (see `canonical` in the
+                 checker -- both mean the branch admits any writer).
+   rlsRule       what the live policy admits.
+   columnGuards  column -> trigger name, for a trigger that refuses a change to one
+                 column. Asserted on every run regardless of status.
+   editorialRef  a pointer to the newsroom rule, not a paraphrase of it. The newsroom
+                 half of this contract lives in BEL-61's `api-of-record` and is not
+                 restated here; this file holds the code facts that document defers to.
 
  Rows are marked `mutating: false` where the surface only reads. They are listed
  for completeness and are not asserted.
@@ -59,6 +94,25 @@ export const MIGRATIONS_DIR = "supabase/migrations";
 export const DOC_PATH = "docs/api-authorization.md";
 export const DOC_HEADER_PATH = "docs/api-authorization.header.md";
 export const DOC_FOOTER_PATH = "docs/api-authorization.footer.md";
+
+/*
+ Writes in `index.ts` that sit outside every `if (resource === ...)` and
+ `if (action === ...)` body, so no branch in the table describes them. Declaring one
+ here is the statement that it is not an authorisation surface, with a reason.
+
+ The coverage boundary of the branch table is exactly this: mutations inside an action
+ branch, and mutations inside a declared row here. Anything else in the file is a
+ failure, because a write that no row claims is a write nobody has answered "who may
+ do this" about.
+*/
+export const OUT_OF_BRANCH_WRITES = [
+  {
+    id: "api_keys.last_used_at",
+    table: "api_keys",
+    marker: "last_used_at",
+    note: "Authenticate() refreshes the caller's key timestamp before it checks the profile. It is a write on the caller's own key, keyed on the presented secret, and it grants nothing: the row is selected by key_hash before this runs, so an unknown key updates nothing. It is here to be declared, not because it is an authorisation surface.",
+  },
+];
 
 export const SPEC = [
   {
@@ -112,9 +166,10 @@ export const SPEC = [
     functionLockCheck: false,
     table: "stories",
     command: "UPDATE",
-    status: "editorially_gated",
-    editorialRef: "api-of-record rule 4: publish needs an APPROVED QA verdict on the task.",
-    note: "No role restriction on either surface. The QA gate is a human process and the code does not carry it.",
+    status: "settled",
+    editorialRef: "api-of-record rule 4: publish requires an APPROVED QA verdict on the item's task.",
+    decidedBy: "BEL-258",
+    note: "Any writer key, on both surfaces. No role gate, and that is the ruling rather than an omission: rule 4 lives on the task, not in the database, so the backend cannot carry it, and a role test would only move the bypass to whoever holds the key. Settled, so a role gate added later fails this check until somebody updates the table deliberately.",
   },
   {
     id: "stories.unpublish",
@@ -126,9 +181,10 @@ export const SPEC = [
     functionLockCheck: true,
     table: "stories",
     command: "UPDATE",
-    status: "editorially_gated",
+    status: "settled",
     editorialRef: "api-of-record rule 3: unpublish needs the editor's instruction, not an engineer's judgement.",
-    note: "Writer-accessible on both surfaces. Refuses a locked story (409). Whether the role gate should exist is BEL-156's question and is not settled here.",
+    decidedBy: "BEL-258",
+    note: "Any writer key, on both surfaces, and that is the contract. It is not quite unrestricted: it refuses a locked story with 409. Rule 3 is enforced by the newsroom and by nothing else, which the ruling records as intended. An admin gate would move the bypass to whoever holds the admin key rather than close it, and would make every takedown wait on one person while a wrong story stays live.",
   },
   {
     id: "stories.lock",
@@ -141,7 +197,8 @@ export const SPEC = [
     table: "stories",
     command: "UPDATE",
     status: "known_gap",
-    note: "The function tests admin. PostgREST does not: stories_writer_update admits any writer for every column, so a writer can PATCH locked=true on the function's own terms. Tracked on BEL-253.",
+    editorialRef: "api-of-record rule 3 names lock as well as unpublish: lock needs the editor's instruction. Rule 7: do not lock a story the editor may need to take down.",
+    note: "The function tests admin. PostgREST does not: stories_writer_update admits any writer for every column, so a writer can PATCH locked=true on the function's own terms. Tracked on BEL-253. What a lock means is unchanged by that gap. It prevents deletion and unpublishing, and it is not a freeze -- a locked story stays correctable with update, deliberately.",
   },
   {
     id: "stories.unlock",
@@ -206,7 +263,8 @@ export const SPEC = [
     table: "weather_forecasts",
     command: "DELETE",
     status: "settled",
-    note: "The subject of BEL-235. Function guard at index.ts:337-341 (PR #9, d35e72a), RLS renamed weather_writer_delete to weather_admin_delete in 20261005170000 (PR #20, 63f543c). Both surfaces admin-only. There is no lock or published equivalent, so this was the least braked action in the function.",
+    editorialRef: "api-of-record rule 5: delete on either resource is off limits without an explicit board decision.",
+    note: "Admin only, on both surfaces. Function guard at index.ts:337-341 (PR #9, d35e72a); RLS renamed weather_writer_delete to weather_admin_delete in 20261005170000 (PR #20, 63f543c). There is no lock or published equivalent to slow a writer down, which made it the least braked action in the function and the one this table was written for. BEL-235 reported it as ungated; it was gated on main already.",
   },
   {
     id: "rls.stories.insert",
@@ -289,8 +347,9 @@ export const SPEC = [
     policy: "profiles_owner_update",
     rlsRule: "owner",
     rlsLockCheck: false,
-    status: "known_gap",
-    note: "USING (auth.uid() = id) WITH CHECK (auth.uid() = id). Row-level, so the role column is not constrained: any authenticated user can set their own role to admin. Any authenticated user can therefore make themselves an admin, which is the key to every role check in the edge function, because authenticate() reads this column. Tracked on BEL-251, which outranks this row.",
+    status: "mitigated_unapplied",
+    columnGuards: { role: "profiles_guard_role_update" },
+    note: "USING (auth.uid() = id) WITH CHECK (auth.uid() = id). RLS is row-level, so on its own this row does not constrain the role column, and an authenticated user who could write it could make themselves an admin -- the key to every role check in the function, because authenticate() reads this column. 20261005190000 adds the BEFORE UPDATE OF role trigger named above, which refuses a role change from any caller that is not service_role, a no-JWT session, or an existing admin. That closes it in the repository; the migration has not been applied to the live database, and that is the whole difference between this row and a settled one. Review by 2026-01-05: if it is still unapplied then, this row stays and the check keeps saying so.",
   },
   {
     id: "rls.comments.insert",
