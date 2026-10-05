@@ -4,6 +4,11 @@ import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import type { ApiKey, Profile, Story, UserRole } from '@/types';
 import {
+  CONDITION_OPTIONS,
+  VALID_ICON_CODES,
+  WIND_DIRECTIONS,
+} from '@/lib/weatherContract';
+import {
   Key,
   Plus,
   Trash2,
@@ -421,10 +426,17 @@ function WeatherManagement() {
     icon: string;
     humidity: number;
     wind_speed: number;
+    precipitation_chance: number | null;
+    sunrise: string | null;
+    sunset: string | null;
+    wind_direction: string | null;
+    wind_min: number | null;
+    wind_max: number | null;
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const loadWeather = useCallback(async () => {
     const { data } = await supabase
@@ -440,16 +452,34 @@ function WeatherManagement() {
     loadWeather();
   }, [loadWeather]);
 
-  const updateField = (id: string, field: string, value: string | number) => {
+  const updateField = (
+    id: string,
+    field: string,
+    value: string | number | null
+  ) => {
     setForecasts((prev) =>
       prev.map((f) => (f.id === id ? { ...f, [field]: value } : f))
     );
   };
 
+  /** Empty input means "no value", not zero. */
+  const parseOptionalInt = (raw: string): number | null => {
+    if (raw.trim() === '') return null;
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? null : n;
+  };
+
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
+    const failures: string[] = [];
     for (const f of forecasts) {
-      await supabase
+      // `sunrise` and `sunset` are intentionally absent. They are provider
+      // values, not hand-edited ones, and they are written by the publish and
+      // backfill paths only. Everything below IS in this payload on purpose:
+      // a column left out of an update() is not preserved here, it is a whole
+      // column this form overwrites with whatever it holds.
+      const { error } = await supabase
         .from('weather_forecasts')
         .update({
           high_temp: f.high_temp,
@@ -458,16 +488,40 @@ function WeatherManagement() {
           icon: f.icon,
           humidity: f.humidity,
           wind_speed: f.wind_speed,
+          precipitation_chance: f.precipitation_chance,
+          wind_direction: f.wind_direction,
+          wind_min: f.wind_min,
+          wind_max: f.wind_max,
         })
         .eq('id', f.id);
+      // Every other write in this dashboard already checks its error. This one
+      // did not, so every row could fail and the button still said "Saved!" --
+      // an editor would leave believing the forecast was published. The most
+      // likely cause is the payload naming a column the database does not have
+      // yet, which is exactly what happens if this frontend is deployed before
+      // 20261005140000_weather_forecasts_deferred_fields.sql is applied.
+      if (error) failures.push(`${f.forecast_date}: ${error.message}`);
     }
     setSaving(false);
+    if (failures.length > 0) {
+      // Report the failure instead of claiming success. The Postgres message
+      // is diagnostic on purpose: PGRST204 names the missing column.
+      setSaveError(
+        `${failures.length} of ${forecasts.length} row(s) did not save. First error — ${failures[0]}`
+      );
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const CONDITIONS = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Showers', 'Rain', 'Thunderstorms', 'Snow', 'Fog'];
-  const ICONS = ['sun', 'cloud-sun', 'cloud', 'cloud-rain', 'cloud-lightning', 'cloud-snow', 'cloud-fog'];
+  // Read from the shared contract in src/lib/weatherContract.ts, which is kept
+  // in step with the CHECK constraints in
+  // 20261005140000_weather_forecasts_deferred_fields.sql. Do not inline these
+  // arrays here: two copies of a value set is how the icon list drifted before.
+  const CONDITIONS = CONDITION_OPTIONS;
+  const ICONS = VALID_ICON_CODES;
+  const WIND_DIRS = WIND_DIRECTIONS;
 
   return (
     <section className="mb-8">
@@ -475,6 +529,7 @@ function WeatherManagement() {
       <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
         <p className="font-sans text-sm text-stone-500 mb-4">
           Edit the weather forecast. Changes appear on the homepage immediately.
+          Sunrise and sunset come from the weather source and are not edited here.
         </p>
 
         {loading ? (
@@ -495,7 +550,13 @@ function WeatherManagement() {
                     <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Condition</th>
                     <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Icon</th>
                     <th className="py-2 px-2 font-sans font-bold text-stone-600">Humidity</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Wind</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Wind mph</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Wind dir</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Wind min</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Wind max</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Precip %</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Sunrise</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Sunset</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -562,19 +623,87 @@ function WeatherManagement() {
                           className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
+                      <td className="py-2 px-2">
+                        {/* A <select>, not a text input. Free text here would
+                            reproduce the icon defect one column over. */}
+                        <select
+                          value={f.wind_direction ?? ''}
+                          onChange={(e) =>
+                            updateField(f.id, 'wind_direction', e.target.value || null)
+                          }
+                          className="px-2 py-1 rounded border border-stone-300 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        >
+                          <option value="">—</option>
+                          {WIND_DIRS.map((d) => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 px-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={f.wind_min ?? ''}
+                          onChange={(e) =>
+                            updateField(f.id, 'wind_min', parseOptionalInt(e.target.value))
+                          }
+                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={f.wind_max ?? ''}
+                          onChange={(e) =>
+                            updateField(f.id, 'wind_max', parseOptionalInt(e.target.value))
+                          }
+                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={f.precipitation_chance ?? ''}
+                          onChange={(e) =>
+                            updateField(
+                              f.id,
+                              'precipitation_chance',
+                              parseOptionalInt(e.target.value)
+                            )
+                          }
+                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                      </td>
+                      <td className="py-2 px-2 font-sans text-sm text-stone-500 whitespace-nowrap">
+                        {f.sunrise ? String(f.sunrise).slice(0, 5) : '—'}
+                      </td>
+                      <td className="py-2 px-2 font-sans text-sm text-stone-500 whitespace-nowrap">
+                        {f.sunset ? String(f.sunset).slice(0, 5) : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex flex-col items-end gap-2">
+              {saveError && (
+                <p
+                  role="alert"
+                  className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-sans text-sm text-red-700"
+                >
+                  {saveError}
+                </p>
+              )}
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="px-5 py-2.5 rounded-lg font-sans text-sm font-bold text-white bg-primary-700 hover:bg-primary-800 disabled:opacity-50 transition-colors flex items-center gap-2"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : null}
-                {saved ? 'Saved!' : 'Save Weather'}
+                {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Weather'}
               </button>
             </div>
           </>

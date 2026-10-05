@@ -8,10 +8,19 @@ import {
   CloudFog,
   Wind,
   Droplets,
+  Sunrise,
+  Sunset,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { VALID_ICON_CODES } from '../lib/weatherContract';
 
-const ICON_MAP: Record<string, LucideIcon> = {
+export type ValidIconCode = (typeof VALID_ICON_CODES)[number];
+
+// Typed against the shared contract on purpose: if someone adds a code to
+// VALID_ICON_CODES and forgets a glyph here, the build fails instead of the
+// reader getting a silent sun icon. That is the same failure the DB CHECK
+// constraint now prevents on the write side.
+const ICON_MAP: Record<ValidIconCode, LucideIcon> = {
   sun: Sun,
   cloud: Cloud,
   'cloud-sun': CloudSun,
@@ -22,7 +31,15 @@ const ICON_MAP: Record<string, LucideIcon> = {
 };
 
 export function getWeatherIcon(iconName: string): LucideIcon {
-  return ICON_MAP[iconName] ?? Sun;
+  return ICON_MAP[iconName as ValidIconCode] ?? Sun;
+}
+
+/** Postgres `time` arrives as "HH:MM:SS". Trim to "HH:MM". */
+function formatClock(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!/^\d{2}:\d{2}/.test(trimmed)) return null;
+  return trimmed.slice(0, 5);
 }
 
 interface WeatherForecastProps {
@@ -34,6 +51,12 @@ interface WeatherForecastProps {
     icon: string;
     humidity: number;
     wind_speed: number;
+    precipitation_chance?: number | null;
+    sunrise?: string | null;
+    sunset?: string | null;
+    wind_direction?: string | null;
+    wind_min?: number | null;
+    wind_max?: number | null;
   }>;
 }
 
@@ -43,7 +66,7 @@ export function WeatherForecast({ forecasts }: WeatherForecastProps) {
   return (
     <section className="mb-12">
       <div className="rounded-2xl overflow-hidden shadow-lg bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900">
-        <div className="px-6 py-4 border-b border-white/10 flex items-center gap-2">
+        <div className="px-6 py-4 border-white/10 flex items-center gap-2 border-b">
           <Sun className="w-5 h-5 text-accent-500" />
           <h2 className="text-white font-sans text-sm font-bold uppercase tracking-wider">
             Belmont 43718 — 3 Day Forecast
@@ -62,6 +85,27 @@ export function WeatherForecast({ forecasts }: WeatherForecastProps) {
               day: 'numeric',
             });
 
+            // Every new field is optional. A row that has not been backfilled
+            // must render exactly what it rendered before, with no bare "%",
+            // no "null mph" and no empty row.
+            const precipitation =
+              typeof day.precipitation_chance === 'number' &&
+              day.precipitation_chance > 0
+                ? day.precipitation_chance
+                : null;
+
+            const sunrise = formatClock(day.sunrise);
+            const sunset = formatClock(day.sunset);
+            const showSolar = sunrise !== null && sunset !== null;
+
+            const hasWindRange =
+              !!day.wind_direction &&
+              typeof day.wind_min === 'number' &&
+              typeof day.wind_max === 'number';
+            const windLabel = hasWindRange
+              ? `${day.wind_direction} ${day.wind_min}–${day.wind_max} mph`
+              : `${day.wind_speed} mph`;
+
             return (
               <div
                 key={day.forecast_date}
@@ -78,6 +122,20 @@ export function WeatherForecast({ forecasts }: WeatherForecastProps) {
                   <span className="font-serif text-4xl font-black">{day.high_temp}°</span>
                   <span className="font-sans text-xl text-white/50">{day.low_temp}°</span>
                 </div>
+
+                {showSolar && (
+                  <div className="flex items-center gap-3 font-sans text-xs text-white/60 mb-3">
+                    <span className="flex items-center gap-1">
+                      <Sunrise className="w-3.5 h-3.5" />
+                      {sunrise}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Sunset className="w-3.5 h-3.5" />
+                      {sunset}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-4 font-sans text-xs text-white/60">
                   <span className="flex items-center gap-1">
                     <Droplets className="w-3.5 h-3.5" />
@@ -85,8 +143,14 @@ export function WeatherForecast({ forecasts }: WeatherForecastProps) {
                   </span>
                   <span className="flex items-center gap-1">
                     <Wind className="w-3.5 h-3.5" />
-                    {day.wind_speed} mph
+                    {windLabel}
                   </span>
+                  {precipitation !== null && (
+                    <span className="flex items-center gap-1">
+                      <CloudRain className="w-3.5 h-3.5" />
+                      {precipitation}%
+                    </span>
+                  )}
                 </div>
               </div>
             );
