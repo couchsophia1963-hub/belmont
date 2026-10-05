@@ -103,13 +103,14 @@ function slugify(text: string): string {
 // Until step 4 is done for the desk row, `stories create` refuses with
 // 500 by design.
 //
-// `action` is read only by the blank-byline rule, which differs between
-// create and update. It defaults to "create" so a caller that omits it
-// cannot silently get create semantics on an update.
+// `action` is read only by the blank-byline rule, which genuinely differs
+// between create and update, so it is required rather than defaulted. A
+// default here would be a value no call site ever passes and that would then
+// quietly decide an update's semantics if someone forgot the argument.
 async function resolveByline(
   data: Record<string, unknown> | undefined,
   keyOwner: { id: string; display_name: string },
-  action: "create" | "update" = "create",
+  action: "create" | "update",
 ): Promise<{ profileId: string; byline: string } | Response> {
   const { data: roster, error } = await supabase
     .from("byline_roster")

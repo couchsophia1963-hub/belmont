@@ -1,7 +1,7 @@
 -- ============================================================
 -- stories: refuse a byline the desk has not permitted, at the database
 --
--- Issue:   BEL-188, review findings 2 and B3 on PR #24
+-- Issue:   BEL-188, review findings 2, B3 and B6 on PR #24
 -- Applies: AFTER 20261005172000_byline_roster.sql
 -- Adds:    no table, no column, no grant. Two policies are replaced with
 --          tighter versions of themselves, and one trigger is added.
@@ -36,55 +36,64 @@
 -- The same check on both paths, from one function: the ruling cannot be
 -- enforced one way on the panel and another way in the function.
 --
--- Why a trigger and not just the policy's null branch
--- ---------------------------------------------------
--- The obvious way to keep unattributed rows editable is to let the UPDATE
--- policy accept a null author_id:
+-- The policy alone cannot express "a byline may not be removed". `WITH CHECK`
+-- sees only the NEW row, so it cannot distinguish null -> null from
+-- non-null -> null, and permitting a null to satisfy it would also permit
+-- stripping one. The trigger reads OLD, so it can. Each covers what the other
+-- cannot:
 --
---   WITH CHECK (... AND (author_id IS NULL OR is_permitted_byline(author_id)))
+--   policy   non-null author_id must be a permitted byline   (sees NEW only)
+--   trigger  a non-null author_id may not become null        (sees OLD too)
 --
--- That was the first draft of this file and it is wrong. `WITH CHECK` sees
--- only the **new** row. It cannot tell null -> null from non-null -> null,
--- so that policy also permits
+-- Removing a byline is refused by the trigger. Leaving an unattributed story
+-- unattributed is allowed by the policy. Verified against a real Postgres
+-- 18.4 with this repo's own migrations applied verbatim, as `authenticated`
+-- with a JWT claim set - not by reading.
 --
---   UPDATE stories SET author_id = NULL WHERE id = <any story>
---
--- for any writer on any row, including a published headline. The edge
--- function refuses exactly that - "Refusing rather than writing a null
--- author_id, which is unattributed copy" - so the policy would permit what
--- the function forbids. That is the one disagreement this file exists to
--- eliminate. A policy cannot express "null is allowed to stay null"; only
--- the OLD row can answer it, so the check moves to a BEFORE UPDATE trigger
--- below.
---
--- Column-scoped grants are not the alternative. There are no column-level
+-- Column-scoped grants are not an alternative. There are no column-level
 -- grants anywhere in this schema: the base migration issues none, and
 -- 20261005140000 leaves its grant block commented out deliberately.
 -- Narrowing UPDATE on `stories` would have to be table-wide and would break
 -- the panel's `select=*` read-back - the exact failure 20261005140000
 -- documents at length.
 --
+-- Interaction worth knowing about: `stories_author_id_profiles_fkey` is
+-- `ON DELETE SET NULL` (20261005150000, already on main), and Postgres issues
+-- that as `UPDATE stories SET author_id = NULL`, which fires a BEFORE UPDATE
+-- row trigger. So deleting the profiles row behind a byline is refused rather
+-- than nulling the byline. That is the right outcome - a byline cannot be
+-- stripped, including by cascade - but it surfaces as a byline error on a
+-- profile or auth-user delete. `profiles.id` is ON DELETE CASCADE from
+-- `auth.users`, so removing the auth user hits it too. Reassign the byline in
+-- byline_roster before removing the account.
+--
 -- What this does NOT do
 -- ---------------------
--- It does not fix the stories that already have `author_id IS NULL`. It
--- leaves them editable in every other respect - the trigger only fires on a
--- non-null becoming null - so correcting the body of an unattributed row
--- still works, and nothing about this migration makes an existing row worse.
--- Attributing those rows is desk work. Read the count off the table rather
--- than trusting a number in a comment:
+-- It does not attribute the stories that already have `author_id IS NULL`, and
+-- it does not fix the ones whose byline is not a permitted one. Both stay
+-- editable in every respect except the byline itself: correcting an excerpt,
+-- or the BEL-83 lock write, still works. Attributing them is desk work. Read
+-- the counts off the table rather than trusting numbers in comments:
 --
 --   SELECT count(*) FROM stories WHERE author_id IS NULL;
 --
--- Verify before relying on it:
---   -- as authenticated, with a writer session, these must fail:
+-- A story whose author_id names a profile that is not an active roster row
+-- has a non-null byline, so the policy demands that byline be permitted and
+-- it is not - so every edit to it is refused until it is given a permitted
+-- one. That is the same refusal that stops a prohibited name going out, and
+-- it is intended, but it lands on the edit path and belongs in the landing
+-- notes rather than being discovered by an editor.
+--
+-- Verify after applying, as a writer session:
+--   -- must fail: an unruled author on a new row
 --   INSERT INTO stories (title, slug, excerpt, body, author_id)
---   VALUES ('t', 't', 't', 't', '<any uuid>');
+--   VALUES ('t', 't-check', 'e', 'b', '<any uuid>');
 --
---   UPDATE stories SET author_id = NULL WHERE id = '<a story that has one>';
+--   -- must fail with 23514: removing a byline
+--   UPDATE stories SET author_id = NULL WHERE slug = '<a story that has one>';
 --
---   -- and this must return true, once byline_roster.profile_id is filled in
---   -- and profiles.display_name matches byline_roster.byline:
---   SELECT public.is_permitted_byline('<the byline profile id>');
+--   -- must succeed: an ordinary edit to an unattributed story
+--   UPDATE stories SET excerpt = 'x' WHERE slug = '<an unattributed story>';
 --
 -- Safe to re-run: every statement is idempotent.
 
@@ -108,20 +117,32 @@ CREATE POLICY "stories_writer_insert"
   );
 
 -- ============================================================
--- 2. UPDATE - same, and the null case is left to the trigger
+-- 2. UPDATE - permitted byline, or null may stay null
 -- ============================================================
--- No null branch here, deliberately. Every non-null author_id must be a
--- permitted byline, and the null case is handled by the trigger below
--- rather than by weakening this policy. Splitting it this way keeps one
--- rule in the policy (is this byline permitted?) and one in the trigger
--- (is this byline being removed?), instead of one condition trying to
--- express both.
+-- The null branch is back, and the trigger below is what makes it safe.
 --
--- The UPDATE policy still requires a permitted byline on the NEW row, so
--- `UPDATE ... SET author_id = <unruled uuid>` is refused here. The
--- `author_id IS NULL` case is what the policy cannot judge: for a row that
--- was already null it should pass, and for a row that had a byline it must
--- not.
+-- Removing it was wrong, and measurably so. `is_permitted_byline(NULL)` is
+-- false by construction, so with no null branch this policy refused EVERY
+-- update to a story whose author_id was null - not just stripping one, but
+-- correcting an excerpt, or the BEL-83 lock write, on any unattributed row.
+-- The trigger only fires on non-null -> null, so it cannot fill the gap: the
+-- policy was refusing rows it was supposed to leave alone.
+--
+-- The base migration seeds six stories with author_id omitted, and every
+-- story published through the old edge function carries the key owner's id -
+-- which is the CTO, seeded inactive. So on a fresh database 6 of 6 seeded
+-- stories were uneditable, and in production every API-published story with a
+-- not-permitted byline was too. Check it rather than trusting this number:
+--
+--   SELECT count(*) FROM stories WHERE author_id IS NULL;
+--
+-- The two rules are complementary, and each covers what the other cannot:
+--
+--   policy   non-null author_id must be a permitted byline  (sees NEW only)
+--   trigger  a non-null author_id may not become null       (sees OLD too)
+--
+-- Removing a byline is refused by the trigger; leaving an unattributed story
+-- unattributed is allowed by the policy.
 DROP POLICY IF EXISTS "stories_writer_update" ON stories;
 CREATE POLICY "stories_writer_update"
   ON stories FOR UPDATE TO authenticated
@@ -136,7 +157,7 @@ CREATE POLICY "stories_writer_update"
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid() AND profiles.role IN ('writer', 'admin')
     )
-    AND public.is_permitted_byline(author_id)
+    AND (author_id IS NULL OR public.is_permitted_byline(author_id))
   );
 
 -- ============================================================
@@ -182,14 +203,13 @@ CREATE TRIGGER stories_byline_not_stripped
   FOR EACH ROW
   EXECUTE FUNCTION public.stories_byline_not_stripped();
 
-commit;
-
 -- ============================================================
--- 3. Make PostgREST see it
+-- 4. Make PostgREST see it
 -- ============================================================
 -- Replaced policies take effect immediately for new statements, but the
--- admin panel calls public.permitted_bylines() through PostgREST and the
 -- policy bodies call public.is_permitted_byline(); the function cache is
--- refreshed here so neither reports "could not find" against a stale
--- schema. Delivered on COMMIT.
+-- refreshed here so that does not report "could not find" against a stale
+-- schema. Inside the transaction, like file 1, so it is delivered on COMMIT.
 NOTIFY pgrst, 'reload schema';
+
+commit;

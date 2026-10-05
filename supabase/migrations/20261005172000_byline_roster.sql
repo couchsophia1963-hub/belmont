@@ -2,7 +2,7 @@
 -- byline_roster: the permitted bylines, as data
 --
 -- Issue:   BEL-188, review findings 1-7 on PR #24
--- Adds:    one table, two functions, ten seed rows. No column changes,
+-- Adds:    one table, two functions, eleven seed rows. No column changes,
 --          no data moves, no change to any existing grant.
 --
 -- Why
@@ -98,7 +98,8 @@
 -- Verify after applying:
 --   SELECT kind, byline, active, profile_id IS NOT NULL AS resolved
 --     FROM byline_roster ORDER BY kind, byline;
---   -- expect 5 active rows (4 reporters, 1 desk) and 5 inactive
+--   -- expect 5 active rows (4 reporters, 1 desk) and 6 inactive. Eleven in
+--   -- total. Counted off the table, not asserted here.
 --
 --   SELECT * FROM permitted_bylines();   -- run as authenticated
 --
@@ -283,24 +284,28 @@ $$;
 COMMENT ON FUNCTION public.permitted_bylines() IS
   'Permitted bylines with a resolved, non-drifted profiles row. Used by the admin panel byline picker; PostgREST exposes it as rpc/permitted_bylines.';
 
+-- Both grants are explicit about the audience, and the `anon` revoke is not
+-- decoration. Supabase's platform defaults run ALTER DEFAULT PRIVILEGES
+-- granting EXECUTE on new functions to anon and authenticated directly, and a
+-- `REVOKE ... FROM PUBLIC` only removes the PUBLIC grant - a privilege granted
+-- straight to a named role survives it. So without the explicit anon revoke,
+-- anon keeps EXECUTE on both functions by inheritance. Both are writer-gated
+-- on auth.uid(), which is null for anon, so the answer would be empty rather
+-- than forbidden - safe, but a posture that depends on a platform default
+-- nobody in this repo controls. Verified on a Postgres built from these
+-- migrations: with the anon revoke absent, anon and service_role both execute
+-- the function successfully.
 REVOKE ALL ON FUNCTION public.is_permitted_byline(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_permitted_byline(uuid) FROM anon;
 REVOKE ALL ON FUNCTION public.permitted_bylines() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.permitted_bylines() FROM anon;
 GRANT EXECUTE ON FUNCTION public.is_permitted_byline(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.permitted_bylines() TO authenticated;
 
--- anon does not get either: anon only reads published stories, and the
--- SELECT policy never calls a function.
+-- service_role is not revoked: it is the edge function's own role and needs to
+-- reach anything. It gets the empty answer from the writer gate because it
+-- carries no JWT claim, and it reads byline_roster directly instead.
 
--- ============================================================
--- 6. Make PostgREST see it
--- ============================================================
--- The edge function reads this table over PostgREST, and the admin panel
--- calls permitted_bylines() over it. A table created by pasting SQL into
--- the editor is not in the schema cache until the cache is reloaded, and
--- until it is, the function gets PGRST205 "could not find the table" and
--- the panel gets PGRST202 "could not find the function". The NOTIFY is
--- delivered on COMMIT. Applying through the Supabase CLI reloads the cache
--- itself and this line does nothing.
 -- ============================================================
 -- 6. Make PostgREST see it
 -- ============================================================
