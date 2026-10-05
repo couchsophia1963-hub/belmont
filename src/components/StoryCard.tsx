@@ -3,6 +3,7 @@ import type { Story } from '@/types';
 import { Calendar, Clock } from 'lucide-react';
 import { ShareButton } from '@/components/ShareButton';
 import { storyPath } from '@/lib/storyUrl';
+import { heroImageAlt } from '@/lib/heroImageAlt';
 
 interface StoryCardProps {
   story: Story;
@@ -19,7 +20,7 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
           {story.image_url && (
             <img
               src={story.image_url}
-              alt={story.title}
+              alt={heroImageAlt(story)}
               className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
             />
           )}
@@ -45,7 +46,7 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
           <div className="relative overflow-hidden h-48 rounded-t-xl">
             <img
               src={story.image_url}
-              alt={story.title}
+              alt={heroImageAlt(story)}
               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             />
             <span className="absolute top-3 left-3 bg-primary-600 text-white font-sans text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">
@@ -88,7 +89,7 @@ export function HeadlineStory({ story }: { story: Story }) {
           <div className="absolute inset-0">
             <img
               src={story.image_url}
-              alt={story.title}
+              alt={heroImageAlt(story)}
               className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />

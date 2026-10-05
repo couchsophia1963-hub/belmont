@@ -6,6 +6,7 @@ import { CommentSection } from '@/components/CommentSection';
 import type { Story, Profile } from '@/types';
 import { Loader2, ArrowLeft, Calendar, Clock, Tag, Lock } from 'lucide-react';
 import { ShareButton } from '@/components/ShareButton';
+import { heroImageAlt } from '@/lib/heroImageAlt';
 
 type StoryWithAuthor = Story & {
   author: Pick<Profile, 'display_name'> | null;
@@ -159,7 +160,7 @@ export function StoryDetailPage() {
         <div className="rounded-xl overflow-hidden mb-8 shadow-lg">
           <img
             src={story.image_url}
-            alt={story.title}
+            alt={heroImageAlt(story)}
             className="w-full h-auto object-cover"
           />
         </div>
