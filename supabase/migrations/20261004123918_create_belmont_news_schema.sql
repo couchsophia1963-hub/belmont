@@ -13,7 +13,7 @@
    - `stories`: News articles with title, slug, excerpt, body, image, author, headline flag.
    - `weather_forecasts`: Daily weather entries (date, high/low temp, condition, icon, humidity, wind).
    - `comments`: User comments on stories (body, story_id, user_id).
-   - `api_keys`: Writer API keys stored as hashes with a display prefix, name, and last-used timestamp.
+   - `api_keys`: Writer API keys. The `key_hash` column stores the raw key, not a hash, so read access to this table is read access to a working credential; the column name is a mistake and the sentence this line used to carry was false. A display prefix, name, and last-used timestamp sit beside it. `20261005290000_api_keys_key_digest_and_revoked_at.sql` adds a SHA-256 digest beside the plaintext and a revoke timestamp, and a later migration drops the plaintext column.
 
 3. Security (RLS)
    - All tables have RLS enabled.
