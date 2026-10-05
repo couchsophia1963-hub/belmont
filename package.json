@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "build-env": "node scripts/build-env.mjs",
     "build-env:probe": "node scripts/build-env.mjs --probe",
-    "prebuild": "node scripts/build-env.mjs"
+    "prebuild": "node scripts/build-env.mjs",
+    "check:authz": "node scripts/check-api-authorization.mjs",
+    "authz:doc": "node scripts/check-api-authorization.mjs --write-doc"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

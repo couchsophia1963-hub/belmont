@@ -16,6 +16,26 @@ workspace build a "Belmont News" site:
 If you are about to make a reader-facing change, it goes here. A change made in
 either duplicate does not reach the live host.
 
+## Checks
+
+| Command | What it does |
+| --- | --- |
+| `npm run check:authz` | Fails if the code disagrees with the written answer to "who is allowed to do what" ([docs/api-authorization.md](docs/api-authorization.md)), or if a mutating action has no row in that table. Needs no install and no database. |
+| `npm run authz:doc` | Regenerates [docs/api-authorization.md](docs/api-authorization.md) from [scripts/api-authorization-spec.mjs](scripts/api-authorization-spec.mjs). Run this after changing the spec, never edit the table by hand. |
+
+`check:authz` also runs in CI on every pull request and on pushes to `main`.
+
+A row has to name the surfaces that can enforce it. Two are code and one is not:
+
+- the edge function, `supabase/functions/api/index.ts`, authenticated by a `bcn_` key
+  and running as service role, so it bypasses RLS entirely — the only gate on that path
+  is an `if` in TypeScript
+- PostgREST, running as `authenticated`, where RLS is the only gate
+- a trigger, which fires for every caller of a table including the ones RLS already
+  admitted, and which RLS cannot see
+
+A guard on one is not visible to the others.
+
 ## The live host
 
 **Live: <https://belmont-news.bolt.host/>** — served from this repo, `main`.
