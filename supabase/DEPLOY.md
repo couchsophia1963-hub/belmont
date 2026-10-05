@@ -461,21 +461,47 @@ the moment to care.
 This is the rule-3 check and it is the one that has never been run, because
 there has never been a SQL route.
 
-Read the grants before applying any migration that adds a column:
+Read the grants before applying any migration that adds a column. Count columns,
+not rows:
 
 ```sql
-select grantee, privilege_type, count(*)
-  from information_schema.column_privileges
- where table_schema = 'public' and table_name = 'weather_forecasts'
- group by 1, 2 order by 1, 2;
+select
+  (select count(*) from information_schema.columns c
+    where c.table_schema = 'public' and c.table_name = 'weather_forecasts')
+    as total_columns,
+  (select count(distinct p.column_name)
+     from information_schema.column_privileges p
+    where p.table_schema = 'public' and p.table_name = 'weather_forecasts'
+      and p.grantee = 'authenticated' and p.privilege_type = 'SELECT')
+    as selectable_columns,
+  (select count(distinct p.column_name)
+     from information_schema.column_privileges p
+    where p.table_schema = 'public' and p.table_name = 'weather_forecasts'
+      and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')
+    as updatable_columns;
 ```
 
-- **No rows for `authenticated`** — its grants are table-level, which is the
-  Supabase default, and they already cover the six columns file 4 adds. Do
-  nothing.
-- **Rows for `authenticated`** — its grants are column-scoped. Extend them in the
-  same change as the migration, not as a follow-up. Grant `SELECT` as well as the
-  writes.
+- **`updatable_columns = total_columns`** — the grant is table-level, which is
+  the Supabase default, and it already covers the six columns file 4 adds. A
+  table-level privilege covers columns added later by `ALTER TABLE`. Do nothing.
+- **`updatable_columns` lower than `total_columns`** — the grant is column-scoped.
+  Extend it in the same change as the migration, not as a follow-up. Grant `SELECT`
+  as well as the writes.
+- **`selectable_columns` lower than `total_columns` even while `updatable_columns`
+  matches** — a write-only grant, which is the quiet failure described below. Grant
+  `SELECT` too.
+
+This section used to ask whether `information_schema.column_privileges` "returns
+rows" and expect none. It always returns rows: a table-level `GRANT` is reported
+there too, expanded to one row per column, and the table owner appears with its
+implicit privileges whether or not anything was ever granted. An empty result
+means the query is wrong, not that the grants are narrow. Read the wrong way
+round the original check was worse than a false alarm, because a reader concludes
+the grants ARE narrow, skips reconciliation, and applies on top of a base nobody
+checked. Count the columns, as above. The corrected form of this query is in
+`20261005190000_profiles_role_not_self_assignable.sql` section 4, learned
+against a real PostgreSQL 18, and BEL-329 fixed the same defect in two
+migration headers (PR #50).
 
 `20261005140000` has its grant statements commented out on purpose, because
 which privileges a role needs is a person's call made after reading that check.

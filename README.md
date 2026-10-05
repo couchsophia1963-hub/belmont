@@ -118,17 +118,42 @@ from its schema cache. A frontend-first deploy breaks admin saves silently while
 the homepage keeps rendering fine, so it looks healthy right up until an editor
 touches the weather panel.
 
-Before any migration, read the grants:
+Before any migration, read the grants. Count columns. Do not count rows:
 
 ```sql
-select column_name, grantee
-from information_schema.column_privileges
-where table_name = '<table>';
+select
+  (select count(*) from information_schema.columns c
+    where c.table_schema = 'public' and c.table_name = '<table>')
+    as total_columns,
+  (select count(distinct p.column_name)
+     from information_schema.column_privileges p
+    where p.table_schema = 'public' and p.table_name = '<table>'
+      and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')
+    as updatable_columns;
 ```
 
-If that returns rows, grants are column-scoped and a new column needs the grant
-extending, or every write fails after the migration lands. Do not widen a grant
-to `anon` on an assumption — read it, then decide.
+Expected: `updatable_columns = total_columns`. That is the Supabase table-level
+default, granted through default privileges, and it covers columns added later by
+`ALTER TABLE`.
+
+If `updatable_columns` comes back **lower** than `total_columns`, the grant is
+column-scoped and a new column needs the grant extending, or every write fails
+after the migration lands. Repeat the comparison with
+`privilege_type = 'SELECT'` before a migration whose new columns are read back
+by the admin panel — a write-only grant saves without error and reads back empty.
+
+Do not test this by asking whether `information_schema.column_privileges`
+returns rows. It always does: a table-level `GRANT` is reported there too,
+expanded one row per column, and the table owner appears with its implicit
+privileges whether or not anything was ever granted. An empty result means the
+query is wrong, not that the grants are narrow.
+`supabase/migrations/20261005190000_profiles_role_not_self_assignable.sql`
+section 4 is the corrected form of this check, and it says why in the same place.
+The same defect was on `main` in five other copies of the row-count check,
+including this paragraph: BEL-329 (PR #50) fixed two of them and BEL-330 the
+other three.
+
+Do not widen a grant to `anon` on an assumption — read it, then decide.
 
 The per-migration replay audit is in `supabase/DEPLOY.md` (PR #21). It is
 required reading before the first `db push`.

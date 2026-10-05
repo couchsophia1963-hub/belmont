@@ -64,19 +64,41 @@
 
    Still run this first, per the standing rule about column-scoped grants. The two
    UPDATEs inside the function need UPDATE on `is_headline`, and the `RAISE
-   EXCEPTION` path below is the reason the function refuses a row it cannot see:
+   EXCEPTION` path below is the reason the function refuses a row it cannot see.
+   Count columns, not rows:
 
-       select grantee, privilege_type, count(*)
-         from information_schema.column_privileges
-         where table_schema = 'public' and table_name = 'stories'
-         group by 1, 2 order by 1, 2;
+      select
+        (select count(*) from information_schema.columns c
+          where c.table_schema = 'public' and c.table_name = 'stories')
+          as total_columns,
+        (select count(distinct p.column_name)
+           from information_schema.column_privileges p
+          where p.table_schema = 'public' and p.table_name = 'stories'
+            and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')
+          as updatable_columns;
 
-   If that returns no rows, `stories` carries the Supabase table-level defaults and
-   `authenticated` already holds UPDATE on every column. If it returns rows, **stop**.
-   A column-scoped grant has to be extended to `is_headline` in this same change, or
-   every write the function makes fails afterwards while the function itself exists.
-   Across this repository the only GRANT or REVOKE so far is on `public.comments_public`
-   (`20261005160000_comments_public_view.sql:102-103`), so no rows is expected.
+   Expected: `updatable_columns = total_columns`. That is the Supabase table-level
+   default, granted through default privileges, and `authenticated` already holds
+   UPDATE on every column, `is_headline` included. Across this repository the only
+   GRANT or REVOKE so far is on `public.comments_public`
+   (`20261005160000_comments_public_view.sql:102-103`), so that is what is expected.
+
+   Do NOT test this by asking whether `information_schema.column_privileges`
+   returns rows. It always does: a table-level GRANT is reported there too,
+   expanded one row per column, and the table owner appears with its implicit
+   privileges whether or not anything was ever granted. An empty result means
+   something is wrong with the query, not that the grants are narrow. This section
+   used to read "if it returns no rows ... if it returns rows, stop", which is the
+   inversion BEL-329 records, and it is also the copy
+   `20261005123424_20261005180000_story_locking.sql` section 5 inherited from the
+   standing rule in README.md. `20261005190000_profiles_role_not_self_assignable.sql`
+   section 4 is the corrected form of this query, learned against a real
+   PostgreSQL 18.
+
+   If `updatable_columns` comes back lower than `total_columns`, a column-scoped
+   grant has to be extended to `is_headline` in this same change, or every write
+   the function makes fails afterwards while the function itself exists. STOP and
+   escalate with the output; do not widen a grant to make this file apply.
 
 6. The repair, and the one judgement call in this file
    A unique index cannot be created while duplicates exist, so this has to handle
