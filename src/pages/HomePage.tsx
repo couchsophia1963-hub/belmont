@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 import { WeatherForecast } from '@/components/WeatherForecast';
 import { HeadlineStory, StoryCard } from '@/components/StoryCard';
 import type { Story, WeatherForecast as WeatherType } from '@/types';
 import { Loader2, TrendingUp } from 'lucide-react';
 
 export function HomePage() {
+  const { session } = useAuth();
   const [weather, setWeather] = useState<WeatherType[]>([]);
   const [headline, setHeadline] = useState<Story | null>(null);
   const [stories, setStories] = useState<Story[]>([]);
@@ -23,7 +25,7 @@ export function HomePage() {
           .from('weather_forecasts')
           .select('*')
           .order('forecast_date', { ascending: true })
-          .limit(3),
+          .limit(7),
         supabase
           .from('stories')
           .select('*')
@@ -75,9 +77,12 @@ export function HomePage() {
   const gridStories = remainingStories.slice(0, 6);
   const sidebarStories = remainingStories.slice(6);
 
+  const visibleDays = session ? 5 : 3;
+  const displayWeather = weather.slice(0, visibleDays);
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-      <WeatherForecast forecasts={weather} />
+      <WeatherForecast forecasts={displayWeather} totalDays={visibleDays} />
 
       {mainHeadline && <HeadlineStory story={mainHeadline} />}
 

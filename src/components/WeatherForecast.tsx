@@ -58,21 +58,37 @@ interface WeatherForecastProps {
     wind_min?: number | null;
     wind_max?: number | null;
   }>;
+  totalDays?: number;
 }
 
-export function WeatherForecast({ forecasts }: WeatherForecastProps) {
+export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) {
   if (forecasts.length === 0) return null;
+
+  const dayCount = totalDays ?? forecasts.length;
+  const gridCols =
+    dayCount <= 3
+      ? 'grid-cols-1 sm:grid-cols-3'
+      : dayCount <= 5
+        ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'
+        : 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-7';
 
   return (
     <section className="mb-12">
       <div className="rounded-2xl overflow-hidden shadow-lg bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900">
-        <div className="px-6 py-4 border-white/10 flex items-center gap-2 border-b">
-          <Sun className="w-5 h-5 text-accent-500" />
-          <h2 className="text-white font-sans text-sm font-bold uppercase tracking-wider">
-            Belmont 43718 — 3 Day Forecast
-          </h2>
+        <div className="px-6 py-4 border-white/10 flex items-center justify-between border-b">
+          <div className="flex items-center gap-2">
+            <Sun className="w-5 h-5 text-accent-500" />
+            <h2 className="text-white font-sans text-sm font-bold uppercase tracking-wider">
+              Belmont 43718 — {dayCount} Day Forecast
+            </h2>
+          </div>
+          {dayCount < 7 && (
+            <span className="font-sans text-xs text-white/50 hidden sm:block">
+              Sign in for {dayCount === 3 ? '5 days' : '7 days with Pro'}
+            </span>
+          )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/10">
+        <div className={`grid ${gridCols} divide-y sm:divide-y-0 sm:divide-x divide-white/10`}>
           {forecasts.map((day, idx) => {
             const Icon = getWeatherIcon(day.icon);
             const date = new Date(day.forecast_date + 'T00:00:00');

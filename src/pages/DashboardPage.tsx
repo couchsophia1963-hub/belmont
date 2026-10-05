@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Link } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import type { ApiKey, Profile, Story, UserRole } from '@/types';
@@ -24,6 +24,7 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  ArrowRight,
 } from 'lucide-react';
 
 export function DashboardPage() {
@@ -367,7 +368,16 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
 
       {/* Recent Stories */}
       <section className="mb-8">
-        <SectionHeader icon={<FileText className="w-5 h-5" />} title="Recent Stories" />
+        <div className="flex items-center justify-between mb-4">
+          <SectionHeader icon={<FileText className="w-5 h-5" />} title="Recent Stories" />
+          <Link
+            to="/stories"
+            className="font-sans text-sm font-bold text-primary-700 hover:text-primary-800 flex items-center gap-1.5"
+          >
+            Manage Stories
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
         <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
           {loadingStories ? (
             <div className="h-16 rounded-lg shimmer" />

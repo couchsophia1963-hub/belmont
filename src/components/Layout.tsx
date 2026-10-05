@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
-import { Newspaper, LayoutDashboard, LogOut, User, Menu, X } from 'lucide-react';
+import { Newspaper, LayoutDashboard, LogOut, User, Menu, X, FileText } from 'lucide-react';
 import { useState } from 'react';
 
 export function Header() {
@@ -34,6 +34,9 @@ export function Header() {
           <nav className="hidden md:flex items-center gap-1">
             <NavLink to="/">Home</NavLink>
             {session && <NavLink to="/dashboard">Dashboard</NavLink>}
+            {session && profile && (profile.role === 'writer' || profile.role === 'admin') && (
+              <NavLink to="/stories">Stories</NavLink>
+            )}
             {!session ? (
               <>
                 <Link
@@ -98,6 +101,15 @@ export function Header() {
                 Dashboard
               </Link>
             )}
+            {session && profile && (profile.role === 'writer' || profile.role === 'admin') && (
+              <Link
+                to="/stories"
+                onClick={() => setMenuOpen(false)}
+                className="px-3 py-2 rounded-lg font-sans text-sm font-semibold text-stone-700 hover:bg-stone-100"
+              >
+                Stories
+              </Link>
+            )}
             {!session ? (
               <div className="flex gap-2">
                 <Link
@@ -153,6 +165,7 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
       className="px-3 py-2 rounded-lg font-sans text-sm font-semibold text-stone-600 hover:text-primary-700 hover:bg-primary-50 transition-colors flex items-center gap-1.5"
     >
       {to === '/dashboard' && <LayoutDashboard className="w-4 h-4" />}
+      {to === '/stories' && <FileText className="w-4 h-4" />}
       {children}
     </Link>
   );
