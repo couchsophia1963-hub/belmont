@@ -10,20 +10,108 @@ workspace build a "Belmont News" site:
 | repo | what it is | status |
 | --- | --- | --- |
 | `couchsophia1963-hub/belmont` (this one) | React 18 + Vite + Supabase. Has the migrations, the admin panel, the weather panel, and the `App.tsx` route table the story URLs depend on. | canonical |
+| `EasySchedule/belmont-news-site` | separate static site, `build.mjs` + `content/`, 7 `node --test` suites. Publishes to GitHub **Pages** and to Netlify. | duplicate, but it is the public front page |
 | `EasySchedule/belmont-news` | legacy static front-end, `index.html` + `data/stories.json` | duplicate, archive pending |
-| `EasySchedule/belmont-news-site` | separate static site, `build.mjs` + `content/`, 7 `node --test` suites | duplicate, archive pending |
 
 If you are about to make a reader-facing change, it goes here. A change made in
 either duplicate does not reach the live host.
 
+Two qualifications on "canonical":
+
+1. Canonical for **this app**, which is served only by the Bolt host. Neither
+   duplicate can serve it — they render markdown, not the React app.
+2. **Not** the front page a reader sees. That is
+   `easyschedule.github.io/belmont-news-site`, from a duplicate, on another
+   account. "Canonical repo" and "canonical front page" are different things
+   here, and conflating them is what produced the stale deploy record BEL-214
+   corrected.
+
 ## The live host
 
-**Live: <https://belmont-news.bolt.host/>** — served from this repo, `main`.
+**Live: <https://belmont-news.bolt.host/>** — served from this repo, `main`. This
+is the only host that serves **this** app.
 
 **Dead: `belmont-county-news-b68j.bolt.host`** — that Bolt project is gone. The
 host answers `200` but the body is Bolt's own "Website not found" page
 (`sentry-transaction=GET /hosting/404`), not this app. A `200` here does not
 mean the site is up. Check the `<title>`, not the status code.
+
+### Every host, and which repository publishes it
+
+Corrected 2026-10-05 18:35Z (BEL-214). Earlier revisions of this file named one
+live host and stopped there, which is why the deploy record pointed at the wrong
+place. There are four hostnames. **Three of them are not this repo.**
+
+| host | status | what it serves | published by |
+| --- | --- | --- | --- |
+| `belmont-news.bolt.host` | `200` | **this app** — admin panel, weather panel, Supabase stories | out of band, see BEL-308 below |
+| `easyschedule.github.io/belmont-news-site` | `200` | the static news site | `EasySchedule/belmont-news-site` via GitHub Pages |
+| `belmont-news.netlify.app` | `200` | the same static news site, **now stale** | `EasySchedule/belmont-news-site` via its `netlify.toml` |
+| `easyschedule.github.io/belmont-news` | `301` | redirects to itself with a trailing slash; legacy static site | `EasySchedule/belmont-news` (legacy Pages) |
+| `couchsophia1963-hub.github.io/belmont/` | `404` | nothing — Pages is not enabled on this repo | — |
+
+The two static hosts render **the same site, not two versions of the newsroom**.
+Both build from `EasySchedule/belmont-news-site`, and both pull the markdown from
+`EasySchedule/belmont-news-blogs@main` at build time. Both already carry
+`<link rel="canonical" href="https://easyschedule.github.io/belmont-news-site/...">`,
+so search engines are told the Pages host is the real one. A reader who lands on
+Netlify sees the same six stories.
+
+A `404` on the bare `easyschedule.github.io` means only that the account has no
+user/org site, which is normal when Pages serves project sites. It is not
+evidence that Pages is broken.
+
+### `EasySchedule` is a different GitHub account, not this org
+
+`EasySchedule` is a personal account (`id 104536530`). This repository is not a
+fork of anything: `fork: false`, `parent: null`. When you are told "the Belmont
+News repo", ask **which** of the three you mean. Two of them are on the other
+account and neither is canonical.
+
+### Netlify is bound to `EasySchedule/belmont-news-site`, not to this repo
+
+There is **no `netlify.toml` in this repository** — absent on `main` and a
+recursive tree listing contains zero occurrences of "netlify". If you were told
+Netlify is bound to *this* repo's `netlify.toml`, that is wrong; the only one in
+the workspace is in `EasySchedule/belmont-news-site`.
+
+That is also why the two static hosts agreed for most of 2026-10-05: both run the
+same `npm run sync -- --from-github EasySchedule/belmont-news-blogs@main && npm
+test && npm run build`.
+
+### The mirror has now stopped rebuilding — measured 2026-10-05 18:36Z
+
+| check | `belmont-news.netlify.app` | Pages |
+| --- | --- | --- |
+| last build (`generated`) | `16:17:31Z` | `18:30:29Z` |
+| `contentHead` | `7879c252…` | `4164531c…` = store `main` |
+| `styles.css` | 11,820 bytes | 13,791 bytes |
+| store commits behind | **26** | 0 |
+
+Netlify stopped publishing after 16:17Z and has not rebuilt since, while Pages has
+published three times since. This is a real origin response, not a CDN artifact:
+the response carries `cache-status: fwd=miss`, `age: 0`.
+
+**No reader is missing an edition.** Both hosts still list the same six stories
+and both report `posts: 11`. The divergence is in presentation and in the
+corrections log: `styles.css` on Pages carries the `caption` and
+`.correction-when` rules that Netlify lacks. Netlify is 26 commits behind the
+markdown store, so it will serve a stale corrections log and stale styling
+indefinitely.
+
+**Consequence: treat `easyschedule.github.io/belmont-news-site` as the newsroom's
+public front page and stop handing out `belmont-news.netlify.app`.** It is not a
+second source of truth, but it is no longer a faithful mirror, and nothing in this
+repository can fix it — the build runs from the other account. See BEL-214.
+
+### Why this repo must not get a Pages site of its own
+
+Enabling Pages here would publish **a third front page for this app** at
+`couchsophia1963-hub.github.io/belmont/`, built from a different repository on a
+different account, and `deploy-pages.yml` contains **no redirect, no canonical,
+and no `301`/`302`** — only `BASE_PATH` and the two Supabase variables. It would
+also expose the admin panel on a second public origin. Do not enable it without
+deciding the redirect rule first. BEL-214 measured this and recommends against it.
 
 Verified on 2026-10-05 by building `main` and comparing it to what the host
 serves. The CSS bundle the host returns is byte-identical to a local build of
@@ -133,10 +221,10 @@ to `anon` on an assumption — read it, then decide.
 The per-migration replay audit is in `supabase/DEPLOY.md` (PR #21). It is
 required reading before the first `db push`.
 
-## GitHub Pages is prepared but not switched on
+## GitHub Pages: prepared, deliberately not switched on
 
-`has_pages` is `false` as of 2026-10-05 — the Pages API returns 404 — but all
-three prerequisites BEL-204 identified are now in the repository, and enabling
+`has_pages` is `false` as of 2026-10-05 18:35Z — the Pages API returns 404 — but
+all three prerequisites BEL-204 identified are now in the repository, and enabling
 Pages is the only thing left:
 
 1. **`base` in `vite.config.ts`** — done. It reads `BASE_PATH`, defaults to `/`
@@ -144,14 +232,35 @@ Pages is the only thing left:
 2. **`public/404.html`** — done. It remembers the requested path and hands it to
    the router via `src/main.tsx`, so `/story/<slug>` reaches the story on Pages
    the way it already does on the Bolt host.
-3. **A deploy workflow and the build variables** — the workflow exists; the
-   variables do not. This repository has no Actions secrets set, so
-   `deploy-pages.yml` halts at the build-env gate rather than publishing a site
-   that cannot read.
+3. **A deploy workflow and the build variables** — the workflow exists and is
+   merged; the variables do not. This repository has no Actions secrets set.
 
-Enabling Pages is a separate, explicit step, and merging the workflow does not do
-it. Do not enable it until the secrets exist, or the first deploy is the failure
-this gate was added to prevent.
+### The gate is now firing on `main` — expected, do not "fix" it
+
+PR #28 merged, so `deploy-pages.yml` runs on every push to `main`. It currently
+**fails on every push**, and that is the gate working:
+
+```
+2026-10-05T18:27:39Z Require the Supabase build variables
+  VITE_SUPABASE_URL project  unrecognised
+  anon key fingerprint        none (not set)
+  error: VITE_SUPABASE_URL is not set.
+  error: VITE_SUPABASE_ANON_KEY is not set.
+  RESULT: fail -- this build must not publish an artifact
+```
+
+Run `37355445602`, on `main` at `6e54bc88`. The red run is the intended outcome
+while the secrets are absent: it publishes no artifact, so no half-configured app
+can reach a public URL.
+
+Two ways to stop the noise, in order of preference:
+
+1. **Recommended:** add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as
+   Actions secrets, decide the redirect rule first (see above), then enable
+   Pages. The run goes green on the next push.
+2. If neither is happening soon, disable or gate the workflow so `main` is not
+   permanently red. Do **not** delete the build-env gate to make it green — the
+   gate is what stops a broken app from being published.
 
 `src/lib/storyUrl.ts` already derives its base from the runtime pathname via
 `siteBasePath()`, so the app code is ready for a subdirectory deploy.
