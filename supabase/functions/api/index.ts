@@ -93,7 +93,22 @@ function slugify(text: string): string {
 // has to still equal the roster entry. That check is the same one RLS
 // applies to direct PostgREST writers, via is_permitted_byline().
 //
-// Deploy order, and all four steps are required:
+// This function resolves names. It does not decide WHO may change a byline on a
+// story that has been published - that is the managing editor's ruling on
+// BEL-231 as amended by BEL-274, and it lives in the `update` action beside the
+// other admin guards, mirrored by a trigger reading OLD so RLS says the same
+// thing. That trigger is not this path's gate: this client carries
+// SUPABASE_SERVICE_ROLE_KEY and bypasses RLS entirely.
+//
+// The `keyOwner` parameter below is deliberately still `{ id, display_name }`.
+// The authority check needs `role`, and it is NOT here: authenticate() returns
+// the whole profile and the `update` action already has it, so widening this
+// signature would add a field to a function that has no use for it and make
+// `role` look like something resolveByline is responsible for. Anyone adding a
+// role test below this line has made a mistake; the existing role guards in this
+// file all read `profile.role` in the action, and that is the pattern.
+//
+// Deploy order, and all five steps are required:
 //   1. 20261005172000_byline_roster.sql
 //   2. 20261005173000_stories_byline_check.sql
 //   3. Auth dashboard: create the auth users. profiles rows come from the
@@ -324,7 +339,67 @@ Deno.serve(async (req: Request) => {
         if (data?.byline !== undefined || data?.author_name !== undefined || data?.author_id !== undefined) {
           const byline = await resolveByline(data, profile, "update");
           if (byline instanceof Response) return byline;
-          updateData.author_id = byline.profileId;
+
+          // Who may change a byline on a story that has been published: an
+          // admin-role caller, on the managing editor's instruction on the
+          // story's task. Mara Vance's ruling on BEL-231, amended by BEL-274
+          // P1-P3. Same shape as the guards on `delete`, `lock` and `unlock` in
+          // this file.
+          //
+          // The row is read here, server-side, and three things about that read
+          // are the rule rather than the implementation:
+          //
+          //   1. `first_published_at`, NOT `published`. `published` is in the
+          //      update whitelist with no role guard on the true -> false
+          //      direction, so a gate keyed on it is bypassable under one
+          //      writer key by unpublishing, renaming, and republishing - and
+          //      the third call never touches author_id, so a gate that fires on
+          //      "the byline changed" would not fire on it either. The marker is
+          //      set by trigger and cannot be cleared, so the history survives.
+          //      See 20261005173000_stories_byline_check.sql section 1.
+          //   2. Nothing in the payload reaches this test. `data.published` is
+          //      never consulted here; the caller's word about whether the story
+          //      is live has no influence on whether an admin is required.
+          //   3. A byline that is not actually changing is not a byline change.
+          //      A writer correcting copy on a live story may resend the byline
+          //      it already carries, and refusing that would close the
+          //      correction path the ruling explicitly keeps open. Copy
+          //      corrections assert nothing about a person; a byline says who
+          //      did work.
+          const { data: existing, error: existingError } = await supabase
+            .from("stories")
+            .select("author_id, first_published_at")
+            .eq("id", id)
+            .maybeSingle();
+
+          if (existingError) {
+            return errorResponse(existingError.message, 500);
+          }
+          if (!existing) return errorResponse("Story not found", 404);
+
+          const row = existing as { author_id: string | null; first_published_at: string | null };
+          const bylineIsChanging = row.author_id !== byline.profileId;
+
+          if (bylineIsChanging) {
+            if (row.first_published_at && profile.role !== "admin") {
+              return errorResponse(
+                `A byline on a story that has been published is changed by an admin-role caller, on ` +
+                  `the managing editor's instruction on the story's task (BEL-231, as amended by ` +
+                  `BEL-274 P1). This API key belongs to ${profile.display_name}, whose role is ` +
+                  `'${profile.role}'. Correcting the copy of a live story does not need an admin ` +
+                  `caller: send the story without "byline" to correct its copy. Unpublishing first ` +
+                  `is not required, is not the answer, and does not help - a byline correction is an ` +
+                  `update, not an unpublish.`,
+                403,
+              );
+            }
+            // An admin caller on a published story, or anyone on a story that has
+            // never been published. The roster check already ran inside
+            // resolveByline, which is why a name outside the roster is a 422 here
+            // rather than a 403: admin is not a licence to write a name the desk
+            // has not permitted (P4).
+            updateData.author_id = byline.profileId;
+          }
         }
 
         const { data: story, error } = await supabase
