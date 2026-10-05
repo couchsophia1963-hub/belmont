@@ -8,11 +8,15 @@ interface CommentSectionProps {
   storyId: string;
 }
 
+// The list query is the only thing that proves comments can be read here.
+// Until it succeeds there is no safe insert path, so the composer stays closed.
+type ListState = 'loading' | 'ready' | 'failed';
+
 export function CommentSection({ storyId }: CommentSectionProps) {
   const { session, profile } = useAuth();
   const [comments, setComments] = useState<PublicComment[]>([]);
   const [deletableIds, setDeletableIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [listState, setListState] = useState<ListState>('loading');
   const [body, setBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,11 +30,11 @@ export function CommentSection({ storyId }: CommentSectionProps) {
 
     if (queryError) {
       setError('Failed to load comments');
-      setLoading(false);
+      setListState('failed');
       return;
     }
     setComments((data ?? []) as PublicComment[]);
-    setLoading(false);
+    setListState('ready');
   };
 
   const loadDeletableIds = async () => {
@@ -86,6 +90,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   };
 
   const canDelete = (comment: PublicComment) => Boolean(session) && deletableIds.has(comment.id);
+  const listFailed = listState === 'failed';
 
   return (
     <section className="mt-12 border-t border-stone-200 pt-8">
@@ -102,7 +107,13 @@ export function CommentSection({ storyId }: CommentSectionProps) {
         </div>
       )}
 
-      {session ? (
+      {listFailed ? (
+        <div className="mb-8 p-6 rounded-xl bg-stone-100 border border-stone-200 text-center">
+          <p className="font-sans text-sm text-stone-600">
+            Comments are unavailable right now. Please try again later.
+          </p>
+        </div>
+      ) : listState !== 'ready' ? null : session ? (
         <form onSubmit={handleSubmit} className="mb-8">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-8 h-8 rounded-full bg-primary-600 text-white flex items-center justify-center font-sans font-bold text-sm">
@@ -142,7 +153,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
         </div>
       )}
 
-      {loading ? (
+      {listFailed ? null : listState === 'loading' ? (
         <div className="space-y-4">
           {[1, 2].map((i) => (
             <div key={i} className="h-20 rounded-lg shimmer" />
