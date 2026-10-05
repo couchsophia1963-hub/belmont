@@ -25,6 +25,23 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
+// API key material. The alphabet and the body length together give
+// log2(36^40) = 206.8 bits, which is more than a bearer token needs and far more
+// than anyone can search. That figure is only true of the source of those bits,
+// which is why generateApiKey draws from `crypto` and not from `Math.random()`.
+const KEY_PREFIX = 'bcn_';
+const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const KEY_BODY_LENGTH = 40;
+
+// The largest whole multiple of the alphabet size that fits in one byte:
+// 36 * 7 = 252. A byte carries 256 values, so `byte % KEY_ALPHABET.length` would
+// map values 0-3 onto the first four letters of the alphabet 8 times each and
+// every other character 7 times each, which makes `a` through `d` about 14% more
+// likely than `8` or `9`. Bytes at or above this ceiling are drawn again rather
+// than folded in, so every character stays equally likely and the entropy figure
+// above holds exactly rather than approximately.
+const KEY_BYTE_CEILING = Math.floor(256 / KEY_ALPHABET.length) * KEY_ALPHABET.length;
+
 export function DashboardPage() {
   const { session, profile, loading, refreshProfile } = useAuth();
 
@@ -169,13 +186,41 @@ function WriterDashboard({ userId }: { userId: string }) {
     loadStories();
   }, [loadApiKeys, loadStories]);
 
+  // Generate a bearer key from the platform CSPRNG.
+  //
+  // This used to build the key from `Math.random()`, which is not a CSPRNG. V8 runs xorshift128+,
+  // which is seeded from the operating system (`RandomNumberGenerator` reads /dev/urandom on Linux
+  // and arc4random_buf on Darwin) but holds only 128 bits of state, and V8 says so itself: "even
+  // though xorshift128+ is a huge improvement over MWC1616, it is still not cryptographically
+  // secure." The state is recoverable from a handful of observed draws, so a key assembled from it is
+  // an obfuscated one rather than a secret. That is a defect in the credential itself, so it cannot
+  // be repaired later by storing the key differently; the material has to come from the right
+  // generator on the way in.
+  //
+  // Note the seeding is not the reason. An earlier version of this comment claimed V8 does not seed
+  // Math.random() from the OS at all. That is not true of current V8 and the next reader who
+  // checks it will find it false. The state size is the argument, and it is V8's own.
+  //
+  // `crypto.getRandomValues` is available in every browser this panel runs in, is the source the
+  // Web Crypto specification exists for, and adds no dependency. It is available in insecure
+  // contexts too, so plain-HTTP hosting is not a constraint either.
+  //
+  // Rotation (`handleRerollKey`) calls this same function, so rotating now yields properly random
+  // material where it previously re-rolled a weak key.
+  //
+  // Does this rotate anything? No. It changes how a key is generated, not what is stored, so no
+  // stored credential is invalidated and no caller has to be given a replacement. Storage is the
+  // separate, sequenced change recorded on BEL-273.
   const generateApiKey = (): string => {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    let key = 'bcn_';
-    for (let i = 0; i < 40; i++) {
-      key += chars[Math.floor(Math.random() * chars.length)];
+    let body = '';
+    while (body.length < KEY_BODY_LENGTH) {
+      for (const byte of crypto.getRandomValues(new Uint8Array(KEY_BODY_LENGTH))) {
+        if (byte >= KEY_BYTE_CEILING) continue;
+        body += KEY_ALPHABET[byte % KEY_ALPHABET.length];
+        if (body.length === KEY_BODY_LENGTH) break;
+      }
     }
-    return key;
+    return KEY_PREFIX + body;
   };
 
   const handleCreateKey = async (e: React.FormEvent) => {
