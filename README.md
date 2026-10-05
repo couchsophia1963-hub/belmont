@@ -25,10 +25,16 @@ either duplicate does not reach the live host.
 
 `check:authz` also runs in CI on every pull request and on pushes to `main`.
 
-The two surfaces a row has to name are the edge function
-(`supabase/functions/api/index.ts`, authenticated by a `bcn_` key, running as service
-role so it bypasses RLS) and PostgREST (running as `authenticated`, where RLS is the
-only gate). A guard in one is not visible to the other.
+A row has to name the surfaces that can enforce it. Two are code and one is not:
+
+- the edge function, `supabase/functions/api/index.ts`, authenticated by a `bcn_` key
+  and running as service role, so it bypasses RLS entirely — the only gate on that path
+  is an `if` in TypeScript
+- PostgREST, running as `authenticated`, where RLS is the only gate
+- a trigger, which fires for every caller of a table including the ones RLS already
+  admitted, and which RLS cannot see
+
+A guard on one is not visible to the others.
 
 ## The live host
 
