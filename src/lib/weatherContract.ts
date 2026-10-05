@@ -76,3 +76,53 @@ export const HUMIDITY_BASIS_SHORT = 'daytime peak';
 
 export const HUMIDITY_BASIS_LONG =
   'Daytime peak humidity: the highest reading from 6 a.m. to 6 p.m., not the average for the day.';
+
+/**
+ * What `weather_forecasts.precipitation_chance` means, in the words the reader sees.
+ *
+ * Issue: BEL-201, ruled by QA on BEL-195. Same defect shape as BEL-190 one level
+ * along: the strip printed a bare `20%` next to a rain icon with no label and no
+ * basis, so a reader could not tell a probability from an amount.
+ *
+ * Three word choices are load-bearing, and QA refused the alternatives. Do not
+ * "simplify" them back:
+ *
+ * - **"Chance", not "precipitation" alone.** A reader reads "precipitation" as an
+ *   amount in inches. The word "chance" is what carries the meaning.
+ * - **"precipitation", not "rain".** The source of record is NWS gridpoint
+ *   `probabilityOfPrecipitation` (`uom: wmoUnit:percent`), which is the probability
+ *   of precipitation — liquid *or frozen equivalent*, not rain specifically.
+ *   Belmont County gets snow in October, and this file already carries `Snow` in
+ *   `CONDITION_OPTIONS` and `cloud-snow` in `VALID_ICON_CODES`. Publishing "Chance
+ *   of rain" over a snow event would be a second false description, which is the
+ *   exact thing BEL-190 and BEL-201 exist to stop.
+ * - **"daytime", not "daytime peak".** There is no peak in this value. It is a
+ *   single probability for the period, not a maximum over it, so "peak" would be
+ *   the same kind of claim the basis exists to remove.
+ *
+ * No clock times in the long basis, and that is deliberate rather than vague. The
+ * NWS daytime period is 06:00-18:00 for a future day, but it is truncated at the
+ * run hour for the day already in progress: on the `2026-10-05T14:36:59Z` run,
+ * `Today` read 10:00-18:00 EDT. So "6 a.m. to 6 p.m." would be false on any card
+ * published mid-morning, while "daytime" stays true on every card.
+ *
+ * Presentation only. The value is not rounded, recomputed or re-derived here; a
+ * reader comparing the card against `api.weather.gov` gets the same figure. The
+ * column is not live yet (`DEFERRED_FIELDS_PENDING = true` in
+ * `src/pages/DashboardPage.tsx`), so nothing has been published through this path
+ * and there is no approved value to protect.
+ *
+ * When the migration lands, the backfill must take the **daytime** period's PoP
+ * and the card basis is restated in that same change. The window is documented in
+ * `supabase/migrations/20261005140000_weather_forecasts_deferred_fields.sql` but
+ * nothing in the repository enforces it: no code reads `isDaytime`, so the
+ * column comment is currently the only statement of the window.
+ *
+ * The database has no counterpart for this basis, same as humidity: no
+ * `comment on column public.weather_forecasts.precipitation_chance`. It needs a
+ * migration, and migrations are blocked until a SQL route exists.
+ */
+export const PRECIP_BASIS_SHORT = 'daytime';
+
+export const PRECIP_BASIS_LONG =
+  'Daytime chance of precipitation: the chance that precipitation falls at this location during the daytime period. This is not a forecast amount.';
