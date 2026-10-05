@@ -146,18 +146,10 @@ Deno.serve(async (req: Request) => {
 
       if (action === "update") {
         if (!id) return errorResponse("Update requires 'id'", 400);
-        // Same lock check as delete. A locked story is frozen content: without
-        // this a writer key rewrites the body of a record an admin froze.
-        const { data: lockRow, error: lockCheckError } = await supabase
-          .from("stories")
-          .select("locked")
-          .eq("id", id)
-          .maybeSingle();
-        if (lockCheckError) return errorResponse(lockCheckError.message, 500);
-        if (!lockRow) return errorResponse("Story not found", 404);
-        if (lockRow.locked) {
-          return errorResponse("Story is locked and cannot be updated. Unlock it first.", 409);
-        }
+        // No lock check here on purpose. Lock is narrow: it prevents deletion,
+        // nothing more. A correction is an update, so a locked story has to
+        // stay correctable -- a story nobody can fix is a worse failure than
+        // one somebody can delete. See BEL-83 item 2.
         const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (data?.title) {
           updateData.title = data.title;
