@@ -31,6 +31,12 @@ interface ApiRequest {
   id?: string;
 }
 
+interface RosterByline {
+  byline: string;
+  profile_id: string | null;
+  kind: "reporter" | "desk";
+}
+
 async function authenticate(authHeader: string | null) {
   if (!authHeader || !authHeader.startsWith("Bearer bcn_")) {
     return null;
@@ -69,6 +75,154 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "")
     .substring(0, 80);
+}
+
+// The byline comes from the draft, not from the key. The key owner is
+// permission to write; it is not authorship. Reads byline_roster, which
+// the BEL-188 migration seeds from the desk's ruling, and refuses
+// anything that is not on it rather than writing a name nobody ruled on.
+// Returns a Response on refusal so the caller can return it unchanged.
+//
+// The roster bounds which NAME may be written. It does not by itself
+// guarantee the right name reaches the reader, because the string rendered
+// on the story page is profiles.display_name, not byline_roster.byline -
+// StoryDetailPage.tsx renders `story.author.display_name`. A display name
+// can drift (profiles_owner_update is table-level, and DashboardPage
+// writes display_name from a text box) and a drifted name renders with no
+// error anywhere. So a match is not enough: the profile's own display_name
+// has to still equal the roster entry. That check is the same one RLS
+// applies to direct PostgREST writers, via is_permitted_byline().
+//
+// Deploy order, and all four steps are required:
+//   1. 20261005172000_byline_roster.sql
+//   2. 20261005173000_stories_byline_check.sql
+//   3. Auth dashboard: create the auth users. profiles rows come from the
+//      on_auth_user_created trigger, so this is NOT a SQL step.
+//   4. SQL: set byline_roster.profile_id, and make profiles.display_name
+//      equal byline_roster.byline.
+// Until step 4 is done for the desk row, `stories create` refuses with
+// 500 by design.
+//
+// `action` is read only by the blank-byline rule, which genuinely differs
+// between create and update, so it is required rather than defaulted. A
+// default here would be a value no call site ever passes and that would then
+// quietly decide an update's semantics if someone forgot the argument.
+async function resolveByline(
+  data: Record<string, unknown> | undefined,
+  keyOwner: { id: string; display_name: string },
+  action: "create" | "update",
+): Promise<{ profileId: string; byline: string } | Response> {
+  const { data: roster, error } = await supabase
+    .from("byline_roster")
+    .select("byline, profile_id, kind")
+    .eq("active", true);
+
+  if (error) {
+    return errorResponse(
+      `byline_roster is unreadable, so no story can be written with a correct byline. Apply 20261005172000_byline_roster.sql before this function. Supabase says: ${error.message}`,
+      500,
+    );
+  }
+
+  const permitted = (roster ?? []) as RosterByline[];
+  const permittedList = permitted.map((r) => r.byline).sort().join(", ") || "(none seeded)";
+
+  // Present-but-blank is different from absent, and only on update.
+  // `{"byline": null}` and `{"byline": ""}` both reach here as a present
+  // field with an empty string. On create that means "no byline named", and
+  // the desk line below is the right answer. On update it is a correction in
+  // flight that would quietly republish a reporter's story under the desk
+  // line, returning 200 with nothing in a log. So it is refused on update
+  // only, and omitting the field remains how you say "no change".
+  const bylinePresent =
+    data?.byline !== undefined || data?.author_name !== undefined || data?.author_id !== undefined;
+  const requested =
+    typeof data?.byline === "string" ? data.byline.trim()
+    : typeof data?.author_name === "string" ? data.author_name.trim()
+    : typeof data?.author_id === "string" ? data.author_id.trim()
+    : "";
+
+  if (bylinePresent && !requested && action === "update") {
+    return errorResponse(
+      "A byline was supplied but it is blank. Name the byline, or omit the field entirely to leave it unchanged.",
+      422,
+    );
+  }
+
+  let match: RosterByline | undefined;
+
+  if (requested) {
+    // Name match only. Accepting a bare profile uuid here would make the
+    // permitted list read as though uuids were permitted names, and a
+    // writer token must not be able to name an arbitrary profile id.
+    match = permitted.find((r) => r.byline.toLowerCase() === requested.toLowerCase());
+    if (!match) {
+      // A bare uuid is not a byline name, so say so rather than quoting a
+      // uuid back as though it were one. The author_id field name is an
+      // easy thing to reach for by mistake, and the old message answered
+      // that mistake in the shape of a byline complaint.
+      const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested);
+      return errorResponse(
+        looksLikeUuid
+          ? `A profile id was supplied where a byline name belongs. The byline is chosen by name from the roster - ` +
+            `permitted: ${permittedList}. Send it in "byline", not "author_id".`
+          : `Byline '${requested}' is not a permitted byline. Permitted: ${permittedList}. ` +
+            `This API key belongs to ${keyOwner.display_name}; holding the key is permission to write, not authorship.`,
+        422,
+      );
+    }
+  } else {
+    match = permitted.find((r) => r.kind === "desk");
+    if (!match) {
+      return errorResponse(
+        "byline_roster has no active desk byline, and this request named none. " +
+          "Pass data.byline, or activate the desk row the BEL-188 migration seeds.",
+        500,
+      );
+    }
+  }
+
+  if (!match.profile_id) {
+    // 500, not 422. Nothing is wrong with the request: an operator has to
+    // create an auth user, which the publisher cannot do. 422 tells a client
+    // to change its request, which sends whoever is reading the error to
+    // the wrong place.
+    return errorResponse(
+      `Byline '${match.byline}' has no profiles row yet, so it cannot be written to stories.author_id. ` +
+        "An operator must create the auth user for this byline (the on_auth_user_created trigger creates the profiles row), " +
+        "set byline_roster.profile_id for it, and make profiles.display_name match byline_roster.byline. " +
+        "Refusing rather than writing a null author_id, which is unattributed copy.",
+      500,
+    );
+  }
+
+  // The name is permitted; confirm the name that will actually render still
+  // matches it. Without this, renaming a profile to a name the desk ruled
+  // out of bylines publishes that name with a satisfied roster.
+  const { data: profileRow, error: profileError } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", match.profile_id)
+    .maybeSingle();
+
+  if (profileError) {
+    return errorResponse(
+      `Could not read the profiles row for byline '${match.byline}': ${profileError.message}`,
+      500,
+    );
+  }
+
+  const displayName = (profileRow as { display_name: string } | null)?.display_name ?? "";
+  if (displayName.trim().toLowerCase() !== match.byline.trim().toLowerCase()) {
+    return errorResponse(
+      `Byline '${match.byline}' does not match the profiles display_name '${displayName}', and the ` +
+        "display name is what the story page renders. Align profiles.display_name with byline_roster.byline, " +
+        "or change the roster entry. Refusing rather than publishing a byline nobody ruled on.",
+      422,
+    );
+  }
+
+  return { profileId: match.profile_id, byline: match.byline };
 }
 
 Deno.serve(async (req: Request) => {
@@ -123,6 +277,8 @@ Deno.serve(async (req: Request) => {
         if (!data?.title || !data?.body) {
           return errorResponse("Stories require 'title' and 'body'", 400);
         }
+        const byline = await resolveByline(data, profile, "create");
+        if (byline instanceof Response) return byline;
         const slug = (data.slug as string) || slugify(data.title as string);
         const insertData = {
           title: data.title,
@@ -131,7 +287,7 @@ Deno.serve(async (req: Request) => {
           body: data.body,
           image_url: data.image_url || null,
           category: data.category || "Local News",
-          author_id: profile.id,
+          author_id: byline.profileId,
           is_headline: data.is_headline || false,
           published: data.published !== undefined ? data.published : true,
         };
@@ -141,7 +297,7 @@ Deno.serve(async (req: Request) => {
           .select()
           .single();
         if (error) return errorResponse(error.message, 500);
-        return jsonResponse({ story }, 201);
+        return jsonResponse({ story, byline: byline.byline }, 201);
       }
 
       if (action === "update") {
@@ -162,6 +318,14 @@ Deno.serve(async (req: Request) => {
         if (data?.category) updateData.category = data.category;
         if (data?.is_headline !== undefined) updateData.is_headline = data.is_headline;
         if (data?.published !== undefined) updateData.published = data.published;
+        // A correction that carries a blank or null byline is refused inside
+        // resolveByline, not treated as "no change" and not silently
+        // republishing the story under the desk line.
+        if (data?.byline !== undefined || data?.author_name !== undefined || data?.author_id !== undefined) {
+          const byline = await resolveByline(data, profile, "update");
+          if (byline instanceof Response) return byline;
+          updateData.author_id = byline.profileId;
+        }
 
         const { data: story, error } = await supabase
           .from("stories")
