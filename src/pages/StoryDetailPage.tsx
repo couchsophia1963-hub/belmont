@@ -7,6 +7,14 @@ import type { Story, Profile } from '@/types';
 import { Loader2, ArrowLeft, Calendar, Clock, Tag, Lock } from 'lucide-react';
 import { ShareButton } from '@/components/ShareButton';
 import { heroImageAlt } from '@/lib/heroImageAlt';
+import {
+  SHELTER_BIDS_ACCURATE_STORY_URL,
+  SHELTER_BIDS_ATTRIBUTION,
+  SHELTER_BIDS_LEAD,
+  SHELTER_BIDS_STORY_PAGE_LEAD_IN,
+  SHELTER_BIDS_STORY_PAGE_LEAD_OUT,
+  isShelterBidsCorrectedStory,
+} from '@/lib/shelterCorrection';
 
 type StoryWithAuthor = Story & {
   author: Pick<Profile, 'display_name'> | null;
@@ -14,6 +22,44 @@ type StoryWithAuthor = Story & {
 
 const STORY_COLUMNS =
   'id, slug, title, excerpt, body, image_url, category, author_id, is_headline, published, locked, locked_until, created_at, updated_at';
+
+/**
+ * The full correction notice for the shelter bids item.
+ *
+ * Rendered above the story's own headline, so it is chrome on the route rather
+ * than an edit to the story body: nothing here touches `story.body`, `excerpt`,
+ * `title` or any other column, and no `stories update` is issued.
+ *
+ * The gate is the route's slug and nothing else -- not the row, not the role,
+ * not `published`. That is deliberate. It is why the notice still renders when
+ * the read path is down: a reader who lands on this address while Supabase is
+ * unreachable is exactly the reader who most needs to be told this is not our
+ * reporting.
+ */
+function ShelterBidsCorrection() {
+  return (
+    <aside
+      role="note"
+      className="mb-6 rounded-xl border border-stone-300 dark:border-stone-700 border-l-4 border-l-error-600 bg-stone-50 dark:bg-stone-900 px-4 py-4"
+    >
+      <p className="font-sans text-sm leading-relaxed text-stone-700 dark:text-stone-300">
+        <strong className="font-bold">{SHELTER_BIDS_LEAD}</strong> {SHELTER_BIDS_STORY_PAGE_LEAD_IN}
+        <a
+          href={SHELTER_BIDS_ACCURATE_STORY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline break-words hover:text-primary-700 dark:hover:text-primary-400"
+        >
+          {SHELTER_BIDS_ACCURATE_STORY_URL}
+        </a>
+        {SHELTER_BIDS_STORY_PAGE_LEAD_OUT}
+      </p>
+      <p className="mt-3 font-sans text-sm text-stone-600 dark:text-stone-400">
+        {SHELTER_BIDS_ATTRIBUTION}
+      </p>
+    </aside>
+  );
+}
 
 export function StoryDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -78,14 +124,17 @@ export function StoryDetailPage() {
 
   if (error || !story) {
     return (
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 text-center">
-        <p className="font-sans text-lg text-stone-600 dark:text-stone-400">{error || 'Story not found'}</p>
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 mt-4 font-sans text-sm font-bold text-primary-700 dark:text-primary-400 hover:underline"
-        >
-          <ArrowLeft className="w-4 h-4" /> Back to Home
-        </Link>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+        {isShelterBidsCorrectedStory(slug) && <ShelterBidsCorrection />}
+        <div className="py-8 text-center">
+          <p className="font-sans text-lg text-stone-600 dark:text-stone-400">{error || 'Story not found'}</p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 mt-4 font-sans text-sm font-bold text-primary-700 dark:text-primary-400 hover:underline"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to Home
+          </Link>
+        </div>
       </div>
     );
   }
@@ -104,6 +153,8 @@ export function StoryDetailPage() {
 
   return (
     <article className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+      {isShelterBidsCorrectedStory(slug) && <ShelterBidsCorrection />}
+
       <Link
         to="/"
         className="inline-flex items-center gap-1.5 font-sans text-sm font-semibold text-primary-700 dark:text-primary-400 hover:underline mb-6"
