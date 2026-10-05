@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { isCommentsViewMissing } from '@/lib/commentsViewMissing';
 import type { PublicComment } from '@/types';
 import { Send, Trash2, MessageCircle, Loader2 } from 'lucide-react';
 
@@ -17,6 +18,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   const [comments, setComments] = useState<PublicComment[]>([]);
   const [deletableIds, setDeletableIds] = useState<Set<string>>(new Set());
   const [listState, setListState] = useState<ListState>('loading');
+  const [listError, setListError] = useState<string | null>(null);
   const [body, setBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,10 +31,15 @@ export function CommentSection({ storyId }: CommentSectionProps) {
       .order('created_at', { ascending: false });
 
     if (queryError) {
-      setError('Failed to load comments');
+      // Two different failures used to read as one. comments_public missing is the
+      // expected state, so it gets the polite note and no banner. Anything else is a
+      // real fault and keeps the banner. Either way exactly one message is rendered,
+      // because the banner and the note contradicted each other in tone.
+      setListError(isCommentsViewMissing(queryError) ? null : 'Failed to load comments');
       setListState('failed');
       return;
     }
+    setListError(null);
     setComments((data ?? []) as PublicComment[]);
     setListState('ready');
   };
@@ -91,23 +98,29 @@ export function CommentSection({ storyId }: CommentSectionProps) {
 
   const canDelete = (comment: PublicComment) => Boolean(session) && deletableIds.has(comment.id);
   const listFailed = listState === 'failed';
+  // A write failure always wins: it is the one the reader just caused, and it is
+  // never the expected state.
+  const banner = error ?? listError;
 
   return (
     <section className="mt-12 border-t border-stone-200 pt-8">
       <div className="flex items-center gap-2 mb-6">
         <MessageCircle className="w-6 h-6 text-primary-700" />
         <h3 className="font-serif text-2xl font-bold text-stone-900">
-          Comments ({comments.length})
+          {/* The count is an assertion about a query that succeeded. While it is
+              loading or failed, comments.length is 0 because nothing came back, not
+              because the story has none, so no number is shown. */}
+          {listState === 'ready' ? `Comments (${comments.length})` : 'Comments'}
         </h3>
       </div>
 
-      {error && (
+      {banner && (
         <div className="mb-4 p-3 rounded-lg bg-error-500/10 border border-error-500/30 text-error-700 font-sans text-sm">
-          {error}
+          {banner}
         </div>
       )}
 
-      {listFailed ? (
+      {listFailed && !listError ? (
         <div className="mb-8 p-6 rounded-xl bg-stone-100 border border-stone-200 text-center">
           <p className="font-sans text-sm text-stone-600">
             Comments are unavailable right now. Please try again later.
