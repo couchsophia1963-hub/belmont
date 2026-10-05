@@ -9,6 +9,9 @@ type StoryWithAuthor = Story & {
   author: Pick<Profile, 'display_name'> | null;
 };
 
+const STORY_COLUMNS =
+  'id, slug, title, excerpt, body, image_url, category, author_id, is_headline, published, created_at, updated_at';
+
 export function StoryDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const [story, setStory] = useState<StoryWithAuthor | null>(null);
@@ -21,7 +24,7 @@ export function StoryDetailPage() {
     (async () => {
       const { data, error: queryError } = await supabase
         .from('stories')
-        .select('*, author:profiles!stories_author_id_fkey(display_name)')
+        .select(STORY_COLUMNS)
         .eq('slug', slug)
         .eq('published', true)
         .maybeSingle();
@@ -36,7 +39,25 @@ export function StoryDetailPage() {
         setLoading(false);
         return;
       }
-      setStory(data as StoryWithAuthor);
+
+      const loaded = data as Story;
+
+      // The byline is looked up on its own, by id, instead of as a PostgREST
+      // embed. `stories.author_id` points at auth.users, and PostgREST only
+      // resolves relationships inside the exposed `public` schema, so an embed
+      // hint fails to parse and takes the whole page down with it (BEL-38).
+      // A missing author name is not worth losing the story over.
+      let author: Pick<Profile, 'display_name'> | null = null;
+      if (loaded.author_id) {
+        const { data: authorRow } = await supabase
+          .from('profiles')
+          .select('id, display_name')
+          .eq('id', loaded.author_id)
+          .maybeSingle();
+        author = (authorRow as Pick<Profile, 'display_name'> | null) ?? null;
+      }
+
+      setStory({ ...loaded, author });
       setLoading(false);
     })();
   }, [slug]);
