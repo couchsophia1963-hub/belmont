@@ -1,0 +1,86 @@
+name: Deploy to GitHub Pages
+
+# Publishes this app to https://couchsophia1963-hub.github.io/belmont/ .
+#
+# It does NOT replace the live site at https://belmont-news.bolt.host/ . Merging
+# this workflow publishes a second, parallel copy. Cutting the live host over to
+# GitHub Pages is a separate, explicit step, and it is not taken here.
+#
+# The two deploys differ in one build setting and nothing else:
+# `BASE_PATH=/belmont/` below, because a Pages project site is served from
+# `/<repo>/` rather than the domain root. See `vite.config.ts`.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push wins.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `--include=dev` is not redundant. When `NODE_ENV=production` is present
+      # in the environment, npm silently omits devDependencies, and `vite
+      # build` then fails with `ERR_MODULE_NOT_FOUND: Cannot find package
+      # 'vite'`. That has already happened once on a runner with NODE_ENV set,
+      # and it looks like a broken repo rather than a skipped install.
+      - name: Install
+        run: npm ci --include=dev
+        env:
+          NODE_ENV: development
+
+      # Refuse to publish a site whose Supabase client has no URL or no key.
+      # The build would succeed and the homepage would render, but the admin
+      # panel and the weather panel would fail on first use — the same silent
+      # shape of failure as a frontend deployed before its migration.
+      - name: Require the Supabase build variables
+        run: |
+          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set. Add it as a repository Actions secret before deploying."
+              exit 1
+            fi
+          done
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Build
+        run: npm run build
+        env:
+          BASE_PATH: /belmont/
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
