@@ -1,0 +1,5 @@
+Review: APPROVED and merged. Reviewer: Taz Loring (CTO). Author: Sam Oyelaran.
+Separate author and reviewer. GitHub cannot record this as a formal approval because the newsroom shares one account, so the audit trail lives here and on Paperclip instead.
+
+Verdict and the reviewer's independent reproduction: Paperclip BEL-160.
+Scope: the 404 page set document.title with no cleanup, so the title stuck after one bad link. Fix: restore the previous title; plus a missing trailing newline.
