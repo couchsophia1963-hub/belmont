@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { setStoryHeadline } from '@/lib/headline';
 import type { Story } from '@/types';
 import {
   Plus,
@@ -217,19 +218,12 @@ function StoryList({
   };
 
   const toggleHeadline = async (story: Story) => {
-    if (!story.is_headline) {
-      await supabase
-        .from('stories')
-        .update({ is_headline: false })
-        .neq('id', story.id);
-    }
-    const { error } = await supabase
-      .from('stories')
-      .update({ is_headline: !story.is_headline })
-      .eq('id', story.id);
-    if (error) {
-      alert('Failed to update: ' + error.message);
-      return;
+    setActionError(null);
+    const outcome = await setStoryHeadline({ column: 'id', value: story.id }, !story.is_headline, {
+      confirmable: story.published,
+    });
+    if (!outcome.ok) {
+      setActionError(outcome.message);
     }
     await loadStories();
   };
@@ -505,7 +499,6 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
       body: body.trim(),
       image_url: imageUrl.trim() || null,
       category,
-      is_headline: isHeadline,
       published,
       updated_at: new Date().toISOString(),
     };
@@ -531,11 +524,19 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
       }
     }
 
-    if (isHeadline && !story?.is_headline) {
-      await supabase
-        .from('stories')
-        .update({ is_headline: false })
-        .neq('slug', finalSlug);
+    // The headline flag is written after the story, never inside the same payload.
+    // Promoting it in the payload put the promotion before the demotion, and the
+    // demotion's error was discarded, so a failed demotion left two headlines.
+    if (isHeadline !== Boolean(story?.is_headline)) {
+      const target = story
+        ? { column: 'id' as const, value: story.id }
+        : { column: 'slug' as const, value: finalSlug };
+      const outcome = await setStoryHeadline(target, isHeadline, { confirmable: published });
+      if (!outcome.ok) {
+        setError(outcome.message);
+        setSaving(false);
+        return;
+      }
     }
 
     setSaving(false);
