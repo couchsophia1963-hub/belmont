@@ -399,8 +399,9 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -d '{"resource":"stories","action":"create",
        "data":{"title":"...","body":"...","category":"..."}}'
 
-# Update a story (any writer key; not blocked by lock, so corrections
-# stay possible on a frozen story)
+# Update a story (any writer key; a correction is never blocked by lock, so
+# a frozen story stays fixable -- but "published": false on a locked story
+# that is still live is refused with 409)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -425,11 +426,17 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"stories","action":"lock","id":"UUID"}'
 
-# Publish / unpublish (any writer key; not blocked by lock)
+# Unpublish a story (any writer key; a locked story is refused with 409)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"stories","action":"unpublish","id":"UUID"}'
+
+# Publish a story (any writer key; the lock does not refuse this one)
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"stories","action":"publish","id":"UUID"}'
 
 # Update weather (any writer key)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
@@ -438,16 +445,18 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -d '{"resource":"weather","action":"upsert",
        "data":{"forecast_date":"2026-10-05","high_temp":70,...}}'
 
-# Delete a weather forecast (no role check today: any valid key)
+# Delete a weather forecast (admin only; a writer key is refused with 403)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"weather","action":"delete","id":"UUID"}'`}</pre>
             <p className="font-sans text-xs leading-relaxed text-stone-400 mt-3">
               These calls are authorised by the function, not by the database. It runs with the
-              service-role key, so the <span className="font-mono text-stone-300">stories_admin_delete</span>{" "}
-              row-level security policy does not apply to them. The role and lock checks listed above
-              are the whole control. The dashboard&apos;s own edits do not come through here; they go
+              service-role key, so the{" "}
+              <span className="font-mono text-stone-300">stories_admin_delete</span> and{" "}
+              <span className="font-mono text-stone-300">weather_admin_delete</span> row-level
+              security policies do not apply to them. The role and lock checks listed above are the
+              whole control. The dashboard&apos;s own edits do not come through here; they go
               straight to PostgREST with your session, where RLS is the control instead — and that
               path has a gap, tracked as BEL-122.
             </p>
