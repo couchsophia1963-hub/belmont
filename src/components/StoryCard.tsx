@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import type { Story } from '@/types';
 import { Calendar, Clock } from 'lucide-react';
 import { ShareButton } from '@/components/ShareButton';
+import { storyPath } from '@/lib/storyUrl';
 
 interface StoryCardProps {
   story: Story;
@@ -14,7 +15,7 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
   if (variant === 'compact') {
     return (
       <div className="group flex gap-4 items-start py-4 border-b border-stone-200 last:border-0 transition-colors hover:bg-stone-50 -mx-2 px-2 rounded-lg">
-        <Link to={`/story/${story.slug}`} className="flex gap-4 items-start min-w-0 flex-1">
+        <Link to={storyPath(story.slug)} className="flex gap-4 items-start min-w-0 flex-1">
           {story.image_url && (
             <img
               src={story.image_url}
@@ -39,7 +40,7 @@ export function StoryCard({ story, variant = 'default' }: StoryCardProps) {
 
   return (
     <div className="group block bg-white rounded-xl shadow-sm border border-stone-200 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative">
-      <Link to={`/story/${story.slug}`} className="block">
+      <Link to={storyPath(story.slug)} className="block">
         {story.image_url && (
           <div className="relative overflow-hidden h-48 rounded-t-xl">
             <img
@@ -82,7 +83,7 @@ export function HeadlineStory({ story }: { story: Story }) {
 
   return (
     <div className="group block relative rounded-2xl shadow-xl mb-12">
-      <Link to={`/story/${story.slug}`} className="block">
+      <Link to={storyPath(story.slug)} className="block">
         {story.image_url && (
           <div className="absolute inset-0">
             <img
