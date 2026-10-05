@@ -126,12 +126,20 @@ jobs:
       # file. `npm run build` does not need a reachable project, and the test
       # suite does not read them.
       #
-      # `prebuild` runs `build-env` first, which would reject these placeholders
-      # and fail this step for the wrong reason. The build itself is what CI is
-      # checking here -- that the bundle compiles -- so it runs `vite build`
-      # directly and the gate is asserted separately above.
+      # `npm run build` is used rather than `vite build` so that `prebuild` runs
+      # here too: CI then exercises the same command a deploy runs, gate
+      # included, instead of a bypass that would let `prebuild` rot unnoticed.
+      #
+      # The key is therefore a well-formed `anon` JWT naming the right project
+      # and expiring far ahead. It is not a credential — it is unsigned, and
+      # Supabase will refuse it — but it passes the shape check, which is all
+      # `prebuild` asks. The two steps above are what prove the gate still
+      # refuses the pairs that should be refused.
       - name: Build
-        run: npx vite build
+        run: npm run build
         env:
-          VITE_SUPABASE_URL: https://placeholder.invalid
-          VITE_SUPABASE_ANON_KEY: placeholder-not-a-real-key
+          VITE_SUPABASE_URL: https://hocwwzzawiwkxghvfasg.supabase.co
+          # Unsigned, so not a credential; Supabase will refuse it. It passes the
+          # shape check, which is all `prebuild` asks. One line on purpose: a
+          # folded YAML scalar joins its lines with a space and would corrupt it.
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsInJlZiI6ImhvY3d3enphd2l3a3hnaHZmYXNnIiwiaXNzIjoic3VwYWJhc2UiLCJleHAiOjQwODI0NDgwMDB9.bG9sb2Jsb2Jsb2Itbm90LWEtcmVhbC1zaWduYXR1cmU
