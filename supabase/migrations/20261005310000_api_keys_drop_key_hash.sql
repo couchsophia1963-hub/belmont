@@ -231,16 +231,29 @@ function left behind.
 
 ## 11. Version number
 
-`20261005220000`. The previous file in this chain is `20261005200000`. The hour between them is
-reserved for the edge function file (the one this task's own predecessor describes as the third step
-of the sequence), so that a migration shipping there cannot collide with this one's version key --
-which, per section 9, would mean a silent skip rather than an error.
+`20261005310000`. The two files before it in this chain are `20261005290000` (the digest columns
+this one drops half of) and `20261005300000` (the owner UPDATE policy the panel's rotation needs).
+Together with this file they read in dependency order: 290000, 300000, 310000.
+
+This file was `20261005220000`, and that key was a collision rather than a reservation. It was
+chosen to leave a gap for the edge function change, which adds no migration at all -- so the gap
+was never used, and in the meantime `fix/bel-249-byline-change-attribution` took the same key with
+`20261005220000_story_byline_changes.sql` on an unrelated stack. Two files, one version key, both
+targeting `main`. Per section 9, a version-keyed ledger SKIPS a file at a version it has already
+recorded, so whichever landed second would have been skipped in silence: had the byline table
+landed first, this file would never have dropped the plaintext column; had this landed first, the
+byline table would never have been created. No error either way.
+
+Renumbered here rather than in the byline branch because this branch already needed a rebase onto
+PR #40's renumbered head, so the edit was free here, and a filename change on a PR whose review is
+already closed is a worse thing to ask for than one on a PR that has to be rebased anyway. The
+byline branch is untouched.
 */
 
 -- ---------------------------------------------------------------------------------------------
 -- 0. Prerequisites: the digest column and its index must already exist.
 --
---    This file drops objects created by 20261005200000. Applied to a database where that file was
+--    This file drops objects created by 20261005290000. Applied to a database where that file was
 --    never run, `DROP TRIGGER IF EXISTS` and `DROP FUNCTION IF EXISTS` are silent no-ops, the census
 --    below raises "column key_digest does not exist", and the operator is left reading a message
 --    about a column when the actual problem is the file above this one. Nothing here is DDL, so
@@ -259,7 +272,7 @@ BEGIN
 
   IF NOT has_column THEN
     RAISE EXCEPTION
-      'api_keys.key_digest does not exist, so 20261005200000 has not been applied to this database and nothing in this file has run. Apply that file first.';
+      'api_keys.key_digest does not exist, so 20261005290000 has not been applied to this database and nothing in this file has run. Apply that file first.';
   END IF;
 
   -- The unique index is proof the earlier file ran to completion, not just that a column with the
@@ -272,7 +285,7 @@ BEGIN
 
   IF NOT has_index THEN
     RAISE EXCEPTION
-      'public.idx_api_keys_key_digest does not exist, so 20261005200000 did not finish on this database and nothing in this file has run. Apply that file first.';
+      'public.idx_api_keys_key_digest does not exist, so 20261005290000 did not finish on this database and nothing in this file has run. Apply that file first.';
   END IF;
 END
 $$;
@@ -357,7 +370,7 @@ ALTER TABLE api_keys ALTER COLUMN key_digest SET NOT NULL;
 -- ---------------------------------------------------------------------------------------------
 -- 5. Say what the column is, now that the thing it was derived from is gone.
 --
---    The comment from 20261005200000 described a trigger that kept this column equal to
+--    The comment from 20261005290000 described a trigger that kept this column equal to
 --    digest(key_hash) and named key_hash as the source. Both are now false, and a comment that
 --    describes a dropped trigger sends the next reader looking for it.
 -- ---------------------------------------------------------------------------------------------
