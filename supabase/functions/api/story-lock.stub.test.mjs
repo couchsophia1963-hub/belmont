@@ -95,3 +95,58 @@ test("the unguarded one-liner this replaced is gone", () => {
     "the bare published assignment is the BEL-166 bypass and must not come back",
   );
 });
+
+// The board's review criterion on BEL-166: the guard must refuse a locked live
+// story's take-down without also refusing an edit to a locked live story, and
+// the distinction must be published-versus-locked rather than
+// operation-versus-operation. These two pin that as executable facts, so a
+// later "simplification" back into an operation-keyed or blanket lock check
+// fails here instead of shipping.
+const ROW_STATES = [true, false].flatMap((published) =>
+  [true, false].map((locked) => ({ published, locked })),
+);
+
+test("truth table: a take-down is refused exactly when published AND locked", () => {
+  const table = [];
+  for (const { published, locked } of ROW_STATES) {
+    const decision = evaluateTakeDown({ wantsUnpublish: true, published, locked });
+    const refused = !decision.allowed;
+    assert.equal(
+      refused,
+      published && locked,
+      `published=${published} locked=${locked} must refuse=${published && locked}`,
+    );
+    table.push(
+      `  published=${String(published).padEnd(5)} locked=${String(locked).padEnd(5)} -> ${
+        refused ? decision.status : "allowed"
+      }`,
+    );
+  }
+  console.log(`  take-down of a story:\n${table.join("\n")}`);
+});
+
+test("truth table: an edit is allowed on every row state, locked or not", () => {
+  for (const { published, locked } of ROW_STATES) {
+    const decision = evaluateTakeDown({ wantsUnpublish: false, published, locked });
+    assert.equal(
+      decision.allowed,
+      true,
+      `published=${published} locked=${locked}: a correction must never be refused`,
+    );
+  }
+});
+
+test("the refusal does not depend on which action asked", () => {
+  // Same row, same answer. If this ever forks per action, the guard has become
+  // operation-versus-operation and the two routes can drift.
+  const lockedLive = { published: true, locked: true };
+  const takeDowns = ROW_STATES.map(({ published, locked }) =>
+    JSON.stringify(evaluateTakeDown({ wantsUnpublish: true, published, locked })),
+  );
+  assert.equal(new Set(takeDowns).size, 2, "only two outcomes exist: 409, or allowed");
+  assert.equal(
+    JSON.stringify(evaluateTakeDown({ wantsUnpublish: true, ...lockedLive })),
+    JSON.stringify(evaluateTakeDown({ wantsUnpublish: true, ...lockedLive })),
+    "identical row state must yield an identical decision",
+  );
+});
