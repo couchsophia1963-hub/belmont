@@ -21,7 +21,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}'],
+    // `scripts/*.test.mjs` is here for the build-env gate (BEL-308), which is
+    // Node code with no jsdom and no TS. It declares `@vitest-environment node`
+    // in a docblock, which is per-file and does not need a deprecated
+    // `environmentMatchGlobs` entry here.
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
     restoreMocks: true,
   },
 });
