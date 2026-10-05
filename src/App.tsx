@@ -1,13 +1,24 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { AuthProvider } from '@/lib/auth';
 import { ThemeProvider } from '@/lib/theme';
 import { Header, Footer } from '@/components/Layout';
-import { HomePage } from '@/pages/HomePage';
-import { StoryDetailPage } from '@/pages/StoryDetailPage';
-import { AuthPage } from '@/pages/AuthPage';
-import { DashboardPage } from '@/pages/DashboardPage';
-import { StoryManagerPage } from '@/pages/StoryManagerPage';
-import { NotFoundPage } from '@/pages/NotFoundPage';
+import { Loader2 } from 'lucide-react';
+
+const HomePage = lazy(() => import('@/pages/HomePage').then((m) => ({ default: m.HomePage })));
+const StoryDetailPage = lazy(() => import('@/pages/StoryDetailPage').then((m) => ({ default: m.StoryDetailPage })));
+const AuthPage = lazy(() => import('@/pages/AuthPage').then((m) => ({ default: m.AuthPage })));
+const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const StoryManagerPage = lazy(() => import('@/pages/StoryManagerPage').then((m) => ({ default: m.StoryManagerPage })));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })));
+
+function PageSpinner() {
+  return (
+    <div className="flex items-center justify-center py-32">
+      <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -37,17 +48,19 @@ function App() {
         <div className="min-h-screen flex flex-col bg-stone-50 dark:bg-stone-950">
           <Header />
           <main className="flex-1">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/story/:slug" element={<StoryDetailPage />} />
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/stories" element={<StoryManagerPage />} />
-              {/* A mistyped or retired slug must say so. This used to render
-                  HomePage, which made a bad link indistinguishable from the
-                  front page. */}
-              <Route path="*" element={<NotFoundPage />} />
-            </Routes>
+            <Suspense fallback={<PageSpinner />}>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/story/:slug" element={<StoryDetailPage />} />
+                <Route path="/auth" element={<AuthPage />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/stories" element={<StoryManagerPage />} />
+                {/* A mistyped or retired slug must say so. This used to render
+                    HomePage, which made a bad link indistinguishable from the
+                    front page. */}
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </Suspense>
           </main>
           <Footer />
         </div>
