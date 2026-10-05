@@ -33,6 +33,14 @@ export interface WeatherForecast {
   humidity: number;
   wind_speed: number;
   created_at: string;
+  // Added by 20261005140000_weather_forecasts_deferred_fields.sql.
+  // Nullable: the rows already on the site do not have them until backfilled.
+  precipitation_chance: number | null;
+  sunrise: string | null;
+  sunset: string | null;
+  wind_direction: string | null;
+  wind_min: number | null;
+  wind_max: number | null;
 }
 
 export interface Comment {

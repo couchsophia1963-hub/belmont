@@ -194,11 +194,24 @@ Deno.serve(async (req: Request) => {
 
     // ===== WEATHER =====
     if (resource === "weather") {
+      // Fields added by 20261005140000_weather_forecasts_deferred_fields.sql.
+      // They are optional on the way in on purpose: a caller that omits one
+      // leaves the stored value alone, so re-running a publish that predates
+      // these columns does not blank a backfilled row.
+      const OPTIONAL_WEATHER_FIELDS = [
+        "precipitation_chance",
+        "sunrise",
+        "sunset",
+        "wind_direction",
+        "wind_min",
+        "wind_max",
+      ] as const;
+
       if (action === "upsert" || action === "create") {
         if (!data?.forecast_date || data?.high_temp === undefined || data?.low_temp === undefined) {
           return errorResponse("Weather requires 'forecast_date', 'high_temp', 'low_temp'", 400);
         }
-        const weatherData = {
+        const weatherData: Record<string, unknown> = {
           forecast_date: data.forecast_date,
           high_temp: data.high_temp,
           low_temp: data.low_temp,
@@ -207,6 +220,9 @@ Deno.serve(async (req: Request) => {
           humidity: data.humidity ?? 50,
           wind_speed: data.wind_speed ?? 5,
         };
+        for (const field of OPTIONAL_WEATHER_FIELDS) {
+          if (data[field] !== undefined) weatherData[field] = data[field];
+        }
         const { data: weather, error } = await supabase
           .from("weather_forecasts")
           .upsert(weatherData, { onConflict: "forecast_date" })
@@ -225,6 +241,9 @@ Deno.serve(async (req: Request) => {
         if (data?.icon) updateData.icon = data.icon;
         if (data?.humidity !== undefined) updateData.humidity = data.humidity;
         if (data?.wind_speed !== undefined) updateData.wind_speed = data.wind_speed;
+        for (const field of OPTIONAL_WEATHER_FIELDS) {
+          if (data?.[field] !== undefined) updateData[field] = data[field];
+        }
         const { data: weather, error } = await supabase
           .from("weather_forecasts")
           .update(updateData)
