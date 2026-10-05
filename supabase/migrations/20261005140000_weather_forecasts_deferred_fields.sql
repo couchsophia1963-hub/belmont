@@ -185,17 +185,41 @@ commit;
 -- rather than table-level it can read the new columns and not write them, and
 -- every admin weather save fails. Run this after the transaction above:
 --
---   select grantee, privilege_type, count(*)
---     from information_schema.column_privileges
---    where table_schema = 'public' and table_name = 'weather_forecasts'
---    group by 1, 2 order by 1, 2;
+--   select
+--     (select count(*) > 0
+--        from information_schema.table_privileges
+--       where table_schema = 'public' and table_name = 'weather_forecasts'
+--         and grantee = 'authenticated' and privilege_type = 'UPDATE')
+--       as update_is_table_level,
+--     (select coalesce(string_agg(column_name, ', ' order by column_name), '(none)')
+--        from information_schema.column_privileges
+--       where table_schema = 'public' and table_name = 'weather_forecasts'
+--         and grantee = 'authenticated' and privilege_type = 'UPDATE')
+--       as update_columns,
+--     (select count(*) > 0
+--        from information_schema.table_privileges
+--       where table_schema = 'public' and table_name = 'weather_forecasts'
+--         and grantee = 'authenticated' and privilege_type = 'SELECT')
+--       as select_is_table_level,
+--     (select coalesce(string_agg(column_name, ', ' order by column_name), '(none)')
+--        from information_schema.column_privileges
+--       where table_schema = 'public' and table_name = 'weather_forecasts'
+--         and grantee = 'authenticated' and privilege_type = 'SELECT')
+--       as select_columns,
+--     (select count(*)
+--        from pg_attribute
+--       where attrelid = 'public.weather_forecasts'::regclass
+--         and attnum > 0 and not attisdropped and attacl is not null)
+--       as columns_with_explicit_acl;
 --
--- NO ROWS for `authenticated`  -> its grants are table-level (the Supabase
---   default) and already cover the six new columns. Stop here. Nothing to do.
+-- `update_is_table_level = true` and `select_is_table_level = true`  -> its grants are
+--   table-level (the Supabase default) and already cover the six new columns. Stop here.
+--   Nothing to do. `update_columns` and `select_columns` list every column, which is
+--   what a table-level grant looks like in column_privileges.
 --
--- ROWS for `authenticated`      -> column-scoped. Extend in this same change,
---   not as a follow-up. Grant SELECT as well as the writes, or the admin panel
---   half-works in a way that looks fine:
+-- Either `*_is_table_level = false`                   -> column-scoped. Extend in this
+--   same change, not as a follow-up. Grant SELECT as well as the writes, or the admin
+--   panel half-works in a way that looks fine:
 --
 --   -- grant select on public.weather_forecasts to authenticated, service_role;
 --   -- grant insert, update, delete on public.weather_forecasts
@@ -211,9 +235,16 @@ commit;
 --
 -- Left commented on purpose. Which privileges that role actually needs is a
 -- person's call made after reading the check, not a migration's, and the
--- migration is written to run unattended. Note that column_privileges reports
--- column-level grants only: a row here is positive proof of column scoping, and
--- the absence of a SELECT row is what makes the read-back above break.
+-- migration is written to run unattended.
+--
+-- Do not judge this by counting rows in `column_privileges`. A table-level grant
+-- is reported there too, expanded to one row per column, and the table owner appears
+-- with implicit privileges whether or not anything was granted, so that query returns
+-- rows on a database with nothing column-scoped. An earlier revision of this comment
+-- used it and told the reader that rows meant stop. `columns_with_explicit_acl`, from
+-- `pg_attribute.attacl`, is the actual detector: it is NULL unless a column carries
+-- its own ACL. Measured on a real PostgreSQL engine, `column_privileges` returns rows
+-- for `weather_forecasts` purely because the table-level default was reproduced.
 --
 -- `weather_public_read` is `TO anon, authenticated USING (true)`, and the
 -- homepage strip reads these columns as anon. So whatever the answer to the

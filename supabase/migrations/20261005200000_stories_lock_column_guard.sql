@@ -98,21 +98,44 @@
 5. Grants: read before applying, and this file changes none
    Rule 3 applies. Run this first:
 
-       select grantee, privilege_type, count(*)
-         from information_schema.column_privileges
-        where table_schema = 'public' and table_name = 'stories'
-        group by 1, 2 order by 1, 2;
+       select
+         (select count(*) > 0
+            from information_schema.table_privileges
+           where table_schema = 'public' and table_name = 'stories'
+             and grantee = 'authenticated' and privilege_type = 'UPDATE')
+           as update_is_table_level,
+         (select coalesce(string_agg(column_name, ', ' order by column_name), '(none)')
+            from information_schema.column_privileges
+           where table_schema = 'public' and table_name = 'stories'
+             and grantee = 'authenticated' and privilege_type = 'UPDATE')
+           as update_columns,
+         (select count(*)
+            from pg_attribute
+           where attrelid = 'public.stories'::regclass
+             and attnum > 0 and not attisdropped and attacl is not null)
+           as columns_with_explicit_acl;
 
-   Expected: NO ROWS. Across every migration in this repository the only GRANT or REVOKE
-   is on public.comments_public (20261005160000_comments_public_view.sql:102-103), so
-   stories is on the Supabase table-level defaults, and a table-level privilege covers
-   columns added later by ALTER TABLE. locked and locked_until are already inside the
-   grant authenticated already has. No new grant is required and none is issued here.
+   Expected: `update_is_table_level = true` and `columns_with_explicit_acl = 0`, with
+   `update_columns` listing every column including `locked` and `locked_until`. That is
+   Supabase's default, granted at table level through default privileges, and a
+   table-level privilege covers columns added later by ALTER TABLE. locked and
+   locked_until are already inside the grant authenticated holds. No new grant is
+   required and none is issued here.
 
-   information_schema.column_privileges reports column-level grants only, so a row is
-   positive proof of column scoping. If it returns rows for authenticated, STOP: this
-   trigger will reject writer writes and a column-scoped grant has to be reconciled in
-   the same change before anything is applied.
+   Do NOT test this by asking whether `information_schema.column_privileges` returns any
+   rows. It always does. Its first UNION branch explodes the *table* ACL and pairs it
+   with every column, so a table-level grant is reported once per column, and the table
+   owner appears with its implicit privileges whether or not anything was ever granted.
+   An earlier revision of this comment used that query and told the reader that any row
+   meant STOP. Measured against a real PostgreSQL engine, it returns 16 rows for
+   `stories` on a database with nothing column-scoped, so it reported STOP on the one
+   environment this file is correct for. `columns_with_explicit_acl` is the actual
+   detector: `attacl` is NULL unless a column carries its own ACL.
+
+   If `update_is_table_level` comes back false, then `authenticated` holds UPDATE on
+   named columns only. If `locked` is not in `update_columns`, every writer edit to this
+   table fails after this trigger installs. Stop and extend the grant in this same
+   change. A trigger refuses a row; it cannot grant the privilege back.
 
    anon is never granted anything on stories in this file. The trigger narrows which rows
    a role may change. It must not widen any privilege.
@@ -158,15 +181,34 @@
    Merge redeploys nothing. Applying these two files is a separate, currently blocked
    step — see section 8.
 
-8. Not verified against a live database
-   This file was written and reviewed as source. It has not been applied, because no SQL
-   route to the project database was available to the agent that wrote it: no
-   service_role key, no Management API token, no reachable Postgres port, and no granted
-   secret. Section 5's query has not been run against the real database. Its result is
-   asserted from repository evidence, not from observation.
+8. Not applied to the project database; verified against a real engine
+   This file has never been applied, because no SQL route to the project database is
+   available to any agent on this beat: no service_role key, no Management API token,
+   no reachable Postgres port, and the secret store returns an empty list. Section 5's
+   check has not been run against the real database.
 
-   Treat "no rows for stories" as unverified until someone runs it. The verification
-   queries at the bottom of this file are the ones to run, in order, before and after.
+   What has been done instead, on BEL-213: the whole migration chain was applied in
+   version order to a real PostgreSQL engine (PGlite, Postgres 17 compiled to WASM)
+   with the Supabase default table grants reproduced and `auth.uid()` /
+   `auth.role()` stood in for the JWT claim GUCs. 24 assertions pass, covering both
+   refusals, writers still being able to edit, all four admin paths, anon matching zero
+   rows, and service_role passing through as documented. The counterfactual was run too:
+   with this trigger dropped, the writer's unlock succeeds and the row really changes,
+   so the suite is known to be capable of failing.
+
+   Two limits, stated so nobody over-reads that:
+
+   - That is engine behaviour on a fixture with emulated grants. It is not the state of
+     the Belmont News database. `information_schema.column_privileges` returns 16 rows
+     there for `stories` purely because the table-level grants are reproduced
+     faithfully, which is what exposed the false STOP this file used to carry.
+   - `attacl` on `pg_attribute` was used as the column-scope detector because it is
+     NULL unless a column carries its own ACL. It was checked in both directions:
+     NULL on every column with table-level grants only, and two rows named the moment
+     `UPDATE` was revoked and re-granted per column.
+
+   Whoever has SQL access still runs the queries at the bottom of this file, in order,
+   before and after. This section records what has and has not been observed.
 */
 
 CREATE OR REPLACE FUNCTION public.stories_guard_lock_columns()
@@ -227,14 +269,30 @@ CREATE TRIGGER stories_guard_lock_columns
 -- two queries first; that is rule 3.
 -- ---------------------------------------------------------------------------
 
--- 1. Before applying: confirm stories is not column-scoped. Expect NO ROWS.
+-- 1. Before applying: confirm stories is not column-scoped. Expect
+--    update_is_table_level = true and columns_with_explicit_acl = 0.
 --
---    select grantee, privilege_type, count(*)
---      from information_schema.column_privileges
---     where table_schema = 'public' and table_name = 'stories'
---     group by 1, 2 order by 1, 2;
+--    select
+--      (select count(*) > 0
+--         from information_schema.table_privileges
+--        where table_schema = 'public' and table_name = 'stories'
+--          and grantee = 'authenticated' and privilege_type = 'UPDATE')
+--        as update_is_table_level,
+--      (select coalesce(string_agg(column_name, ', ' order by column_name), '(none)')
+--         from information_schema.column_privileges
+--        where table_schema = 'public' and table_name = 'stories'
+--          and grantee = 'authenticated' and privilege_type = 'UPDATE')
+--        as update_columns,
+--      (select count(*)
+--         from pg_attribute
+--        where attrelid = 'public.stories'::regclass
+--          and attnum > 0 and not attisdropped and attacl is not null)
+--        as columns_with_explicit_acl;
 --
---    Any row means STOP. See section 5.
+--    `update_is_table_level = false` means STOP, and `locked` must appear in
+--    `update_columns` even when it is true. See section 5. Do not use
+--    `column_privileges` row count as this test: it reports table-level grants too,
+--    expanded one row per column.
 
 -- 2. Before applying: confirm the guard does not exist yet. Expect NO ROWS.
 --

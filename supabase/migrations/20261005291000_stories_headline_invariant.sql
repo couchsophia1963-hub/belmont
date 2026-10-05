@@ -66,17 +66,43 @@
    UPDATEs inside the function need UPDATE on `is_headline`, and the `RAISE
    EXCEPTION` path below is the reason the function refuses a row it cannot see:
 
-       select grantee, privilege_type, count(*)
-         from information_schema.column_privileges
-         where table_schema = 'public' and table_name = 'stories'
-         group by 1, 2 order by 1, 2;
+       select
+         (select count(*) > 0
+            from information_schema.table_privileges
+           where table_schema = 'public' and table_name = 'stories'
+             and grantee = 'authenticated' and privilege_type = 'UPDATE')
+           as update_is_table_level,
+         (select coalesce(string_agg(column_name, ', ' order by column_name), '(none)')
+            from information_schema.column_privileges
+           where table_schema = 'public' and table_name = 'stories'
+             and grantee = 'authenticated' and privilege_type = 'UPDATE')
+           as update_columns,
+         (select count(*)
+            from pg_attribute
+           where attrelid = 'public.stories'::regclass
+             and attnum > 0 and not attisdropped and attacl is not null)
+           as columns_with_explicit_acl;
 
-   If that returns no rows, `stories` carries the Supabase table-level defaults and
-   `authenticated` already holds UPDATE on every column. If it returns rows, **stop**.
-   A column-scoped grant has to be extended to `is_headline` in this same change, or
-   every write the function makes fails afterwards while the function itself exists.
-   Across this repository the only GRANT or REVOKE so far is on `public.comments_public`
-   (`20261005160000_comments_public_view.sql:102-103`), so no rows is expected.
+   If `update_is_table_level = true` and `columns_with_explicit_acl = 0`, `stories`
+   carries the Supabase table-level defaults, `authenticated` already holds UPDATE on
+   every column, and `update_columns` lists `is_headline` among them.
+
+   If `update_is_table_level = false`, **stop**. A column-scoped grant has to be
+   extended to `is_headline` in this same change, or every write the function makes
+   fails afterwards while the function itself exists.
+
+   Do not use the row count of `information_schema.column_privileges` for this. A
+   table-level grant is reported there too, expanded to one row per column, and the
+   table owner appears with implicit privileges whether or not anything was granted, so
+   it returns rows on a database with nothing column-scoped. An earlier revision of this
+   comment used it and told the reader that rows meant stop and no rows meant fine --
+   both wrong, and the second one is the dangerous half. Across this repository the only
+   GRANT or REVOKE so far is on `public.comments_public`
+   (`20261005160000_comments_public_view.sql:102-103`), and measured against a real
+   PostgreSQL engine, `column_privileges` returns 16 rows for `stories` on exactly that
+   arrangement. `columns_with_explicit_acl` is the real detector: `attacl` is NULL unless
+   a column carries its own ACL.
+
 
 6. The repair, and the one judgement call in this file
    A unique index cannot be created while duplicates exist, so this has to handle

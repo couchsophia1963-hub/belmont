@@ -69,17 +69,39 @@ rather than changes to the shipped behaviour:
    not issue one. Issuing one would widen the grant on the assumption that a new column
    needs extending. Read it instead, before applying:
 
-       select grantee, privilege_type, count(*)
-         from information_schema.column_privileges
-        where table_schema = 'public' and table_name = 'stories'
-        group by 1, 2 order by 1, 2;
+       select
+         (select count(*) > 0
+            from information_schema.table_privileges
+           where table_schema = 'public' and table_name = 'stories'
+             and grantee = 'authenticated' and privilege_type = 'UPDATE')
+           as update_is_table_level,
+         (select coalesce(string_agg(column_name, ', ' order by column_name), '(none)')
+            from information_schema.column_privileges
+           where table_schema = 'public' and table_name = 'stories'
+             and grantee = 'authenticated' and privilege_type = 'UPDATE')
+           as update_columns,
+         (select count(*)
+            from pg_attribute
+           where attrelid = 'public.stories'::regclass
+             and attnum > 0 and not attisdropped and attacl is not null)
+           as columns_with_explicit_acl;
 
-   `information_schema.column_privileges` reports column-level grants only, so a row here
-   is positive proof that `stories` is column-scoped. If this query returns rows for
-   `authenticated`, STOP: a column-scoped grant on stories has to be extended to include
-   locked and locked_until in the same change, or every writer update fails afterwards.
+   The expected answer is `update_is_table_level = true` and `columns_with_explicit_acl =
+   0`, and this is the Supabase table-level default.
 
-   NO ROWS is the expected answer and means the table-level default applies.
+   Do NOT test this by asking whether `information_schema.column_privileges` returns rows.
+   It always does: its first UNION branch explodes the *table* ACL and pairs it with every
+   column, so a table-level grant appears once per column, and the table owner appears
+   with implicit privileges regardless. This file previously used that query and told the
+   reader that any row meant STOP. Measured on a real PostgreSQL engine, it returns 16 rows
+   for `stories` when nothing is column-scoped, so it said STOP on the environment it was
+   written for. A check that always fires is a check people learn to skip.
+   `columns_with_explicit_acl` is the real detector; `attacl` is NULL unless a column
+   carries its own ACL.
+
+   If `update_is_table_level` comes back false, a column-scoped grant on `stories` has to
+   be extended to include `locked` and `locked_until` in the same change, or every writer
+   update fails afterwards. STOP in that case.
 
    `service_role` is unaffected. It bypasses RLS, which is what lets the edge function
    keep working while its own in-code admin check does the authorising.

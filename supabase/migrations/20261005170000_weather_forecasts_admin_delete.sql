@@ -36,13 +36,31 @@
    `weather_forecasts` anywhere, so its privileges are the Supabase table-level defaults and
    this migration cannot half-apply through a missing grant.
 
-   If that check ever comes back with rows for `authenticated`, stop and do not run this
+   If that check ever comes back with a column-scoped grant, stop and do not run this
    blind -- a column-scoped grant would need extending in this same change:
 
-       select grantee, privilege_type, count(*)
-         from information_schema.column_privileges
-        where table_schema = 'public' and table_name = 'weather_forecasts'
-        group by 1, 2 order by 1, 2;
+       select
+         (select count(*) > 0
+            from information_schema.table_privileges
+           where table_schema = 'public' and table_name = 'weather_forecasts'
+             and grantee = 'authenticated' and privilege_type = 'DELETE')
+           as delete_is_table_level,
+         (select count(*)
+            from pg_attribute
+           where attrelid = 'public.weather_forecasts'::regclass
+             and attnum > 0 and not attisdropped and attacl is not null)
+           as columns_with_explicit_acl;
+
+   `delete_is_table_level = true` is the Supabase default and the expected answer.
+
+   Do not judge this by counting rows in `information_schema.column_privileges`. A
+   table-level grant is reported there too, expanded to one row per column, and the
+   table owner appears with implicit privileges regardless, so that view returns rows
+   on a database with nothing column-scoped. An earlier revision of this comment used
+   it and told the reader that rows meant stop. Note also that DELETE cannot be granted
+   per column in Postgres, so `column_privileges` cannot even report it; the honest test
+   is `delete_is_table_level`. `columns_with_explicit_acl` catches the write and read
+   grants this table does carry.
 
    `service_role` is unaffected. It bypasses RLS, which is what lets the function keep
    working once its in-code guard does the authorising.
