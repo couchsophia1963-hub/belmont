@@ -457,6 +457,25 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
 // ============================================================
 // WEATHER MANAGEMENT
 // ============================================================
+/**
+ * True while `precipitation_chance`, `wind_direction`, `wind_min` and `wind_max`
+ * exist in this codebase but NOT in the database.
+ *
+ * `20261005140000_weather_forecasts_deferred_fields.sql` is written and reviewed but
+ * has not been applied: the Supabase connection on this board is bound to a different
+ * project, so nobody can run it yet (BEL-32, blocked on BEL-48). PostgREST rejects a
+ * write that names a column missing from its schema cache with PGRST204, so a save
+ * that includes these four fields fails on every row.
+ *
+ * Reads are unaffected. They all use `select('*')`, and a `*` result simply omits
+ * columns that do not exist, so the homepage and this page both still load.
+ *
+ * Flip this to `false` in the same change that applies the migration. Nothing else
+ * needs to change: the payload, the form fields and the row type already carry all
+ * four columns.
+ */
+const DEFERRED_FIELDS_PENDING = true;
+
 function WeatherManagement() {
   const [forecasts, setForecasts] = useState<Array<{
     id: string;
@@ -520,27 +539,35 @@ function WeatherManagement() {
       // backfill paths only. Everything below IS in this payload on purpose:
       // a column left out of an update() is not preserved here, it is a whole
       // column this form overwrites with whatever it holds.
+      //
+      // The four deferred columns are the exception, and only while their
+      // migration is unapplied. Naming them makes PostgREST reject the whole
+      // write with PGRST204, so every row fails and the save does nothing.
+      // Leaving them out is safe: an update() that does not name a column
+      // leaves that column untouched, so nothing is overwritten with null.
+      const payload: Record<string, unknown> = {
+        high_temp: f.high_temp,
+        low_temp: f.low_temp,
+        condition: f.condition,
+        icon: f.icon,
+        humidity: f.humidity,
+        wind_speed: f.wind_speed,
+      };
+      if (!DEFERRED_FIELDS_PENDING) {
+        payload.precipitation_chance = f.precipitation_chance;
+        payload.wind_direction = f.wind_direction;
+        payload.wind_min = f.wind_min;
+        payload.wind_max = f.wind_max;
+      }
       const { error } = await supabase
         .from('weather_forecasts')
-        .update({
-          high_temp: f.high_temp,
-          low_temp: f.low_temp,
-          condition: f.condition,
-          icon: f.icon,
-          humidity: f.humidity,
-          wind_speed: f.wind_speed,
-          precipitation_chance: f.precipitation_chance,
-          wind_direction: f.wind_direction,
-          wind_min: f.wind_min,
-          wind_max: f.wind_max,
-        })
+        .update(payload)
         .eq('id', f.id);
       // Every other write in this dashboard already checks its error. This one
       // did not, so every row could fail and the button still said "Saved!" --
-      // an editor would leave believing the forecast was published. The most
-      // likely cause is the payload naming a column the database does not have
-      // yet, which is exactly what happens if this frontend is deployed before
-      // 20261005140000_weather_forecasts_deferred_fields.sql is applied.
+      // an editor would leave believing the forecast was published. Keep this
+      // check: it is what turns a silent wrong success into a visible failure,
+      // and it is what would catch a PGRST204 if the payload regressed.
       if (error) failures.push(`${f.forecast_date}: ${error.message}`);
     }
     setSaving(false);
@@ -572,6 +599,14 @@ function WeatherManagement() {
           Edit the weather forecast. Changes appear on the homepage immediately.
           Sunrise and sunset come from the weather source and are not edited here.
         </p>
+
+        {DEFERRED_FIELDS_PENDING && (
+          <p className="font-sans text-sm text-stone-500 mb-4 border-l-2 border-stone-300 pl-3">
+            Precipitation chance and the wind detail columns are read-only for now. They
+            need a database migration that has not been applied yet, so saving them would
+            fail. Everything else on this form saves normally.
+          </p>
+        )}
 
         {loading ? (
           <div className="h-32 rounded-lg shimmer" />
@@ -668,6 +703,7 @@ function WeatherManagement() {
                         {/* A <select>, not a text input. Free text here would
                             reproduce the icon defect one column over. */}
                         <select
+                          disabled={DEFERRED_FIELDS_PENDING}
                           value={f.wind_direction ?? ''}
                           onChange={(e) =>
                             updateField(f.id, 'wind_direction', e.target.value || null)
@@ -684,6 +720,7 @@ function WeatherManagement() {
                         <input
                           type="number"
                           min={0}
+                          disabled={DEFERRED_FIELDS_PENDING}
                           value={f.wind_min ?? ''}
                           onChange={(e) =>
                             updateField(f.id, 'wind_min', parseOptionalInt(e.target.value))
@@ -695,6 +732,7 @@ function WeatherManagement() {
                         <input
                           type="number"
                           min={0}
+                          disabled={DEFERRED_FIELDS_PENDING}
                           value={f.wind_max ?? ''}
                           onChange={(e) =>
                             updateField(f.id, 'wind_max', parseOptionalInt(e.target.value))
@@ -707,6 +745,7 @@ function WeatherManagement() {
                           type="number"
                           min={0}
                           max={100}
+                          disabled={DEFERRED_FIELDS_PENDING}
                           value={f.precipitation_chance ?? ''}
                           onChange={(e) =>
                             updateField(
