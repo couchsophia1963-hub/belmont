@@ -211,7 +211,8 @@ Use `has_table_privilege`, not `information_schema`, for the same reason given a
 `information_schema` privilege views report a grant only where the GRANTOR or the GRANTEE is a
 currently-enabled role, so a role that is neither yields zero rows and the check passes vacuously.
 `has_table_privilege` reads the relation's ACL directly. `20261005300000` section 1 uses the same
-function for the same reason, but note what it does *not* do: its three calls are all scoped to
+function for the same reason, but note what it does *not* do: its two calls (20261005300000:131 and
+:247; the :133 hit is the warning message naming the function, not a call) are both scoped to
 `authenticated`. It cross-checks `information_schema` against the ACL for one role, not two roles.
 This block is the only `service_role` privilege check anywhere in `supabase/`.
 
