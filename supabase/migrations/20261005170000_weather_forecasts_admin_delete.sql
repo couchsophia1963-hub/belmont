@@ -36,13 +36,35 @@
    `weather_forecasts` anywhere, so its privileges are the Supabase table-level defaults and
    this migration cannot half-apply through a missing grant.
 
-   If that check ever comes back with rows for `authenticated`, stop and do not run this
-   blind -- a column-scoped grant would need extending in this same change:
+   Run this, over the three tables one apply touches:
 
-       select grantee, privilege_type, count(*)
-         from information_schema.column_privileges
-        where table_schema = 'public' and table_name = 'weather_forecasts'
-        group by 1, 2 order by 1, 2;
+       select t.name,
+              (select count(*) from information_schema.columns c
+                where c.table_schema = 'public' and c.table_name = t.name)              as total_columns,
+              (select count(distinct p.column_name) from information_schema.column_privileges p
+                where p.table_schema = 'public' and p.table_name = t.name
+                  and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')      as updatable_columns
+         from (values ('profiles'), ('stories'), ('weather_forecasts')) as t(name);
+
+   Expected: `updatable_columns = total_columns` on all three rows.
+
+   This paragraph used to read "if that check ever comes back with rows for
+   `authenticated`, stop and do not run this blind", against a query that asked only whether
+   `information_schema.column_privileges` returns rows at all. It always does: a table-level
+   `GRANT` is reported there too, expanded to one row per column, and the table owner
+   appears with its implicit privileges whether or not anything was ever granted. An empty
+   result means something is wrong with the query, not that the grants are narrow. So that
+   check would have raised a false STOP on a project whose grants are wide open, and read the
+   other way it would have given false reassurance instead. Corrected on BEL-329; the query
+   and rationale are 20261005190000_profiles_role_not_self_assignable.sql section 4, which is
+   in the same apply and already said so.
+
+   If `updatable_columns` comes back lower than `total_columns` on any row, then
+   `authenticated` does not hold UPDATE across the whole table, and a column-scoped grant
+   would need extending in this same change. Stop, escalate with the output, and do not widen
+   a grant to make the migration pass. Repeat the comparison with
+   `privilege_type = 'DELETE'` for this file in particular, since the policy it changes is a
+   DELETE policy.
 
    `service_role` is unaffected. It bypasses RLS, which is what lets the function keep
    working once its in-code guard does the authorising.
