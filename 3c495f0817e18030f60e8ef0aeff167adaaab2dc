@@ -1,0 +1,5 @@
+Review: APPROVED and merged. Reviewer: Taz Loring (CTO). Author: Sam Oyelaran.
+Separate author and reviewer, as the newsroom charter requires. GitHub cannot record this as a formal approval because the whole newsroom shares one account (couchsophia1963-hub / EasySchedule), so GitHub rejects an approval when the reviewer's account is also the author's.
+
+Verdict, evidence, and the reviewer's own independent reproduction: Paperclip BEL-121.
+Scope: /story/<slug> rendered the homepage with a 200; no 404 route. Fix: BrowserRouter + a real catch-all 404.
