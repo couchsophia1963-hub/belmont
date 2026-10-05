@@ -82,11 +82,6 @@ export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) 
               Belmont 43718 — {dayCount} Day Forecast
             </h2>
           </div>
-          {dayCount < 7 && (
-            <span className="font-sans text-xs text-white/50 hidden sm:block">
-              Sign in for {dayCount === 3 ? '5 days' : '7 days with Pro'}
-            </span>
-          )}
         </div>
         <div className={`grid ${gridCols} divide-y sm:divide-y-0 sm:divide-x divide-white/10`}>
           {forecasts.map((day, idx) => {
