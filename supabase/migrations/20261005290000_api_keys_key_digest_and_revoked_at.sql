@@ -1,6 +1,32 @@
 /*
 # api_keys: store a digest beside the credential, revoke instead of deleting
 
+## 0. This file is edited in place, and that is only safe until it is applied
+
+Read this before changing anything in it.
+
+A precheck and a census are worth nothing once the file has run. Everything in sections 5 and 6
+below -- the column census, the grant precheck, the `service_role` check -- executes at apply
+time. If this file has already been applied to a database, editing it changes nothing there: the
+ledger has recorded the version key, the file is not re-run, and the checks are inert forever.
+
+**So this file is amendable only while nothing has applied it.** That is true today, and the
+reason is specific rather than reassuring:
+
+  * Nothing in this repository applies migrations. `ci.yml` runs typecheck, lint, the harnesses
+    and build; `deploy-pages.yml` builds and publishes the site. Neither has a `supabase db push`,
+    a migration step, or a database URL. That is the whole basis -- not "agents cannot reach the
+    database", which is a different claim with a different expiry date and one that would stop
+    being true the moment an operator got a console.
+
+  * **The moment a migration runner is added to this repository, amend-in-place stops being safe
+    and stops being noticeable.** A new runner would apply this file as-is, skipping every edit
+    made here afterwards, and the prechecks would silently never run. If you are adding one: stop,
+    and move the outstanding checks into a later migration instead of editing this one.
+
+Once this file has been applied anywhere, every check that still needs to run belongs in a NEW
+file with a new version key.
+
 ## 1. Purpose
 
 `api_keys.key_hash` is named for a hash and holds nothing of the kind. The base schema's header
@@ -165,6 +191,31 @@ Two traps when reading the result:
 - The table owner appears in these views with its implicit privileges whether or not anything was
   ever granted, so scope the query to `grantee = 'authenticated'`.
 
+**One thing that query above does not cover, and it is the one that matters most here.** Every row of
+it is scoped to `authenticated`, which is the role the *panel* uses. The first reader of `key_digest`
+in production is the *edge function*, which builds its client from `SUPABASE_SERVICE_ROLE_KEY`
+(`supabase/functions/api/index.ts:9-14`) and therefore reads this table as **`service_role`**. Check
+that role too, before applying:
+
+```sql
+SELECT has_table_privilege('service_role', 'public.api_keys', 'SELECT') AS service_role_selects;
+```
+
+The expected answer is `true`. `service_role` carries `BYPASSRLS` and Supabase grants it `ALL` on
+`public` by default, so on a correctly configured project this is not in doubt — but the precheck
+above cannot see it either way, and a project where the assumption does not hold would refuse every
+desk key with nothing in either column explaining why. This file's step-5 census now raises a
+`WARNING` if that role cannot read the table.
+
+Use `has_table_privilege`, not `information_schema`, for the same reason given above: the
+`information_schema` privilege views report a grant only where the GRANTOR or the GRANTEE is a
+currently-enabled role, so a role that is neither yields zero rows and the check passes vacuously.
+`has_table_privilege` reads the relation's ACL directly. `20261005300000` section 1 uses the same
+function for the same reason, but note what it does *not* do: its two calls (20261005300000:131 and
+:247; the :133 hit is the warning message naming the function, not a call) are both scoped to
+`authenticated`. It cross-checks `information_schema` against the ACL for one role, not two roles.
+This block is the only `service_role` privilege check anywhere in `supabase/`.
+
 If either `*_is_table_level` comes back `false`, **stop and do not apply this file.** The fix is a
 separate migration extending the existing column grants to cover `key_digest` and `revoked_at` for
 `SELECT`, `INSERT`, `UPDATE` and `DELETE`. Do not widen a grant to a public role to get past this,
@@ -180,6 +231,36 @@ table-level privileges to be the thing that is already true.
 **No agent on this beat can run this precheck or apply the file.** The installed Supabase connection
 points at the Shipwright project, not Belmont News (BEL-48). Applying it is a human action in the
 Supabase dashboard, and it has not been applied.
+
+## 6a. The one ordering hazard nobody will see in a log
+
+**Merging the edge function change is safe. Rebuilding the deployed app from that `main` is not.**
+
+The base schema `20261004123918` creates `api_keys` with `key_hash` only -- no `key_digest`, no
+`revoked_at`. Those columns arrive here, in `20261005300000`, and in `20261005305000`. The function
+that reads `key_digest` (PR #58) is one `select("id, user_id, revoked_at").eq("key_digest", digest)`
+away from asking PostgREST for a column that does not exist, and PostgREST answers PGRST204:
+
+  every desk key refused, no error naming a column, homepage still rendering
+
+because the homepage never touches `api_keys`. That is rule 1 running backwards -- code first,
+database second -- and it is the direction nobody checks.
+
+**No workflow in this repository deploys the app or the function.** `ci.yml` runs the gates and
+`deploy-pages.yml` builds the site; neither contains a `supabase db push`, a migration step, or a
+Supabase deploy token. So a rebuild of the hosted app is triggered from the **platform**, not from a
+push, and **it will not appear in any workflow log.** Nobody will be told.
+
+Before the app is rebuilt from a `main` containing PR #58:
+
+  1. this file has been applied to Belmont News, and
+  2. its section 6 precheck has been read on the real database -- `authenticated` holds table-level
+     INSERT and SELECT on `api_keys` -- and
+  3. `service_role` holds table-level SELECT on `api_keys`, or the WARNING added by PR #59 fires.
+
+None of those three has been checked against the real database by anyone, because no agent on this
+beat can reach it. Merging #58 is a text operation and carries no risk; the rebuild is the part that
+is dangerous, and the two are easy to confuse because the second follows the first automatically.
 
 ## 7. Why SHA-256, and why no salt and no slow KDF
 
@@ -531,6 +612,60 @@ BEGIN
     (SELECT count(*) > 0 FROM information_schema.table_privileges
       WHERE table_schema = 'public' AND table_name = 'api_keys'
         AND grantee = 'authenticated' AND privilege_type = 'UPDATE');
+
+  -- The first reader of key_digest in production is NOT authenticated.
+  --
+  -- The edge function builds its client from SUPABASE_SERVICE_ROLE_KEY
+  -- (supabase/functions/api/index.ts:9-14), so it reads this table as service_role.
+  -- Every privilege check in this file was scoped to authenticated, which is the
+  -- role the *panel* uses and not the role the *function* uses. A column-scoped
+  -- api_keys would therefore have been invisible to this precheck and would refuse
+  -- every desk key with nothing in either column explaining why -- the exact
+  -- failure section 6 exists to catch, arriving through the reader nobody checked.
+  --
+  -- This is a NOTICE and not an exception, and the reason is a fact about roles
+  -- rather than a matter of taste: service_role carries BYPASSRLS and Supabase
+  -- grants it ALL on public by default, so the expected answer is always true and
+  -- raising on it would fail this migration on a correctly configured project.
+  -- It is here so that a project where the assumption does NOT hold says so at the
+  -- moment someone is watching, which is the only time it is actionable.
+  --
+  -- has_table_privilege rather than information_schema, for the reason section 6
+  -- gives: the information_schema privilege views report a grant only where the
+  -- GRANTOR OR the GRANTEE is a currently-enabled role, so a role that is neither
+  -- yields zero rows and the check passes vacuously. has_table_privilege reads the
+  -- relation's ACL directly and has no such filter. See 20261005300000 section 1,
+  -- which uses the same function for the same reason. It is scoped to `authenticated`, though: its
+  -- three calls do not cover service_role, so this block is the only service_role privilege check
+  -- in supabase/.
+  --
+  -- Two limits worth knowing, both confirmed by running the block rather than by reading it:
+  --
+  --   * It is a smoke alarm, not a diagnosis. has_table_privilege('role', table, 'SELECT') asks
+  --     about TABLE-level privilege, which a column-scoped grant never confers -- so it is false
+  --     both when the grant is absent and when the grant is column-scoped but covers key_digest
+  --     and the function would work fine. The WARNING text says so and names the
+  --     has_column_privilege call that tells the two apart, rather than asserting a cause it has
+  --     not established.
+  --   * has_table_privilege RAISES 'role "service_role" does not exist' rather than returning
+  --     false. On any Supabase project the role exists. On a self-hosted Postgres that renamed
+  --     it, this block would abort the migration -- which is the correct outcome, because the
+  --     edge function's key would not work anyway -- but it means the file assumes a Supabase
+  --     role layout.
+  IF NOT has_table_privilege('service_role', 'public.api_keys', 'SELECT') THEN
+    RAISE WARNING
+      'service_role has no TABLE-LEVEL SELECT on api_keys. That is also true when the grant is '
+      'column-scoped, which this predicate cannot distinguish -- has_table_privilege asks about '
+      'table-level privilege, which a column grant never confers. To tell the two apart, run: '
+      'has_column_privilege(''service_role'', ''public.api_keys'', ''key_digest'', ''SELECT''). '
+      'That is false only in the case that actually breaks the function. The edge function '
+      'authenticates and stamps last_used_at as service_role (SUPABASE_SERVICE_ROLE_KEY), so it '
+      'would refuse every key once it reads key_digest -- and this precheck, which was scoped to '
+      'authenticated, did not look. Granting SELECT at table level resolves both cases. This file '
+      'does not issue that grant.';
+  ELSE
+    RAISE NOTICE 'api_keys: service_role holds SELECT (BYPASSRLS role, reads key_digest).';
+  END IF;
 END
 $$;
 -- ---------------------------------------------------------------------------------------------
