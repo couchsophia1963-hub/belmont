@@ -9,7 +9,7 @@ interface CommentSectionProps {
 }
 
 type CommentWithProfile = Comment & {
-  profiles: Pick<Profile, 'display_name' | 'email'> | null;
+  profiles: Pick<Profile, 'display_name'> | null;
 };
 
 export function CommentSection({ storyId }: CommentSectionProps) {
@@ -23,7 +23,9 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   const loadComments = async () => {
     const { data, error: queryError } = await supabase
       .from('comments')
-      .select('*, profiles:profiles!comments_user_id_fkey(display_name, email)')
+      .select(
+        'id, story_id, body, created_at, user_id, profiles:profiles!comments_user_id_fkey(display_name)'
+      )
       .eq('story_id', storyId)
       .order('created_at', { ascending: false });
 
@@ -32,7 +34,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
       setLoading(false);
       return;
     }
-    setComments((data ?? []) as CommentWithProfile[]);
+    setComments((data ?? []) as unknown as CommentWithProfile[]);
     setLoading(false);
   };
 
@@ -153,13 +155,13 @@ export function CommentSection({ storyId }: CommentSectionProps) {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-stone-300 text-stone-600 flex items-center justify-center font-sans font-bold text-sm">
-                    {(comment.profiles?.display_name || comment.profiles?.email || '?')
+                    {(comment.profiles?.display_name || '?')
                       .charAt(0)
                       .toUpperCase()}
                   </div>
                   <div>
                     <span className="font-sans text-sm font-semibold text-stone-800">
-                      {comment.profiles?.display_name || comment.profiles?.email || 'Unknown'}
+                      {comment.profiles?.display_name || 'Unknown'}
                     </span>
                     <span className="font-sans text-xs text-stone-400 ml-2">
                       {new Date(comment.created_at).toLocaleDateString('en-US', {
