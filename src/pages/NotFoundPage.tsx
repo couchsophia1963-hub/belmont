@@ -20,8 +20,17 @@ import { ArrowLeft, FileQuestion } from 'lucide-react';
 export function NotFoundPage() {
   const location = useLocation();
 
+  // Restore whatever title the previous page left behind. Without the cleanup
+  // this effect set the title once and never took it back, so a reader who hit
+  // one bad link kept seeing "Page not found" in the tab for the rest of the
+  // session, including back on the homepage. No other page sets a title, so in
+  // practice this restores the one in index.html.
   useEffect(() => {
+    const previousTitle = document.title;
     document.title = 'Page not found — Belmont County News';
+    return () => {
+      document.title = previousTitle;
+    };
   }, []);
 
   return (
