@@ -295,8 +295,9 @@ test("the Postgres side digests the whole column value, unaltered", () => {
   // Postgres side. The digest then differs from this function's for every key, the
   // lookup matches nothing, and every desk key is refused with no error naming a
   // column. Invisible to every other gate in this repository.
-  const body = migration.slice(migration.indexOf("api_keys_fill_key_digest()"));
-  for (const forbidden of ["substring(", "trim(", "replace(", "left(", "right(", "overlay("]) {
+  // Checked against the assignment expressions, not the whole file: a token inside a
+  // comment is harmless, and a token inside an assignment is the failure.
+  for (const forbidden of ["substring(", "trim(", "btrim(", "replace(", "left(", "right(", "overlay("]) {
     const inAssignments = assignments.some((e) => e.includes(forbidden));
     assert.equal(
       inAssignments,
@@ -304,8 +305,6 @@ test("the Postgres side digests the whole column value, unaltered", () => {
       `${forbidden} on the Postgres side would make every stored digest differ from this function's`,
     );
   }
-  // `left(`/`right(` inside a comment is harmless; only assignments were tested above.
-  assert.ok(body.length > 0);
 });
 
 test("the two implementations cannot drift apart on the value that gets hashed", async () => {
@@ -317,9 +316,16 @@ test("the two implementations cannot drift apart on the value that gets hashed",
     fileURLToPath(new URL("../../../src/pages/DashboardPage.tsx", import.meta.url)),
     "utf8",
   );
+  // Anchored at BOTH ends, deliberately. An unanchored /key_hash:\s*rawKey/ passes
+  // for `key_hash: rawKey.trim()` and for `key_hash: encodeURIComponent(rawKey)` --
+  // both measured, both 37/37 -- so a prefix match does not pin what it claims to
+  // pin. The character class requires the value to end at the property boundary, so
+  // any transformation of the stored value fails here.
   assert.match(
     dashboard,
-    /key_hash:\s*rawKey/,
-    "the panel must store the full raw key in key_hash; a partial value would break the digest link",
+    /key_hash:\s*rawKey\s*[,}]/,
+    "the panel must store the raw key in key_hash with nothing applied to it; "
+      + "trim(), encodeURIComponent(), a slice or a concat all produce a stored value "
+      + "whose digest this function cannot reproduce",
   );
 });
