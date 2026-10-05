@@ -180,7 +180,20 @@ function StoryList({
     await loadStories();
   };
 
+  // The database refuses this write for a non-admin on a locked story
+  // (20261005190000_stories_lock_column_guard.sql). Checking here means a writer finds
+  // out from the button instead of from an error dialog naming a story uuid, and it
+  // says who to ask. This is not the control. The trigger is.
+  const unpublishBlocked = (story: Story) =>
+    role !== 'admin' && story.locked && story.published;
+
   const togglePublished = async (story: Story) => {
+    if (unpublishBlocked(story)) {
+      setActionError('This story is locked, so only an admin can unpublish it. Ask an admin to unpublish it, or to unlock it first.');
+      setActionTarget(null);
+      return;
+    }
+
     const { error } = await supabase
       .from('stories')
       .update({ published: !story.published })
@@ -338,8 +351,15 @@ function StoryList({
                   <td className="py-3 px-2 text-center">
                     <button
                       onClick={() => togglePublished(story)}
-                      className="p-1.5 rounded-lg transition-colors"
-                      title={story.published ? 'Unpublish' : 'Publish'}
+                      disabled={unpublishBlocked(story)}
+                      className="p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={
+                        unpublishBlocked(story)
+                          ? 'Locked: only an admin can unpublish this story'
+                          : story.published
+                            ? 'Unpublish'
+                            : 'Publish'
+                      }
                     >
                       {story.published ? (
                         <Eye className="w-4 h-4 text-success-600" />
