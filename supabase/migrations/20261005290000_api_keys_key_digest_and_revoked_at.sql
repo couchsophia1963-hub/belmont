@@ -165,6 +165,28 @@ Two traps when reading the result:
 - The table owner appears in these views with its implicit privileges whether or not anything was
   ever granted, so scope the query to `grantee = 'authenticated'`.
 
+**One thing that query above does not cover, and it is the one that matters most here.** Every row of
+it is scoped to `authenticated`, which is the role the *panel* uses. The first reader of `key_digest`
+in production is the *edge function*, which builds its client from `SUPABASE_SERVICE_ROLE_KEY`
+(`supabase/functions/api/index.ts:9-14`) and therefore reads this table as **`service_role`**. Check
+that role too, before applying:
+
+```sql
+SELECT has_table_privilege('service_role', 'public.api_keys', 'SELECT') AS service_role_selects;
+```
+
+The expected answer is `true`. `service_role` carries `BYPASSRLS` and Supabase grants it `ALL` on
+`public` by default, so on a correctly configured project this is not in doubt — but the precheck
+above cannot see it either way, and a project where the assumption does not hold would refuse every
+desk key with nothing in either column explaining why. This file's step-5 census now raises a
+`WARNING` if that role cannot read the table.
+
+Use `has_table_privilege`, not `information_schema`, for the same reason given above: the
+`information_schema` privilege views report a grant only where the GRANTOR or the GRANTEE is a
+currently-enabled role, so a role that is neither yields zero rows and the check passes vacuously.
+`has_table_privilege` reads the relation's ACL directly. `20261005300000` section 1 cross-checks both
+roles for this reason.
+
 If either `*_is_table_level` comes back `false`, **stop and do not apply this file.** The fix is a
 separate migration extending the existing column grants to cover `key_digest` and `revoked_at` for
 `SELECT`, `INSERT`, `UPDATE` and `DELETE`. Do not widen a grant to a public role to get past this,
@@ -531,6 +553,40 @@ BEGIN
     (SELECT count(*) > 0 FROM information_schema.table_privileges
       WHERE table_schema = 'public' AND table_name = 'api_keys'
         AND grantee = 'authenticated' AND privilege_type = 'UPDATE');
+
+  -- The first reader of key_digest in production is NOT authenticated.
+  --
+  -- The edge function builds its client from SUPABASE_SERVICE_ROLE_KEY
+  -- (supabase/functions/api/index.ts:9-14), so it reads this table as service_role.
+  -- Every privilege check in this file was scoped to authenticated, which is the
+  -- role the *panel* uses and not the role the *function* uses. A column-scoped
+  -- api_keys would therefore have been invisible to this precheck and would refuse
+  -- every desk key with nothing in either column explaining why -- the exact
+  -- failure section 6 exists to catch, arriving through the reader nobody checked.
+  --
+  -- This is a NOTICE and not an exception, and the reason is a fact about roles
+  -- rather than a matter of taste: service_role carries BYPASSRLS and Supabase
+  -- grants it ALL on public by default, so the expected answer is always true and
+  -- raising on it would fail this migration on a correctly configured project.
+  -- It is here so that a project where the assumption does NOT hold says so at the
+  -- moment someone is watching, which is the only time it is actionable.
+  --
+  -- has_table_privilege rather than information_schema, for the reason section 6
+  -- gives: the information_schema privilege views report a grant only where the
+  -- GRANTOR OR the GRANTEE is a currently-enabled role, so a role that is neither
+  -- yields zero rows and the check passes vacuously. has_table_privilege reads the
+  -- relation's ACL directly and has no such filter. See 20261005300000 section 1,
+  -- which cross-checks both roles for the same reason.
+  IF NOT has_table_privilege('service_role', 'public.api_keys', 'SELECT') THEN
+    RAISE WARNING
+      'service_role cannot SELECT api_keys. The edge function authenticates and stamps '
+      'last_used_at as service_role (SUPABASE_SERVICE_ROLE_KEY), so it would refuse every '
+      'key once it reads key_digest -- and this precheck, which was scoped to '
+      'authenticated, did not look. Grant SELECT on the table before deploying the '
+      'function that reads the digest. This file does not issue that grant.';
+  ELSE
+    RAISE NOTICE 'api_keys: service_role holds SELECT (BYPASSRLS role, reads key_digest).';
+  END IF;
 END
 $$;
 -- ---------------------------------------------------------------------------------------------
