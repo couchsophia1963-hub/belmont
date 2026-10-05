@@ -52,12 +52,31 @@ anchor.
 Pick the block for the work, then take the next free key inside it. Do not pick
 "now" and hope.
 
-For the current merge window the whole in-flight set was reserved as one block:
+For the current merge window the whole in-flight set was reserved as one block.
+Read this table for **who holds a key**, not for what is still free:
 
-| block | owner |
-| --- | --- |
-| `2026100529xxxx` | BEL-318: `5291` PR #34, `5292` PR #38, `5293` was PR #41's first choice |
-| `2026100530xxxx`, `2026100531xxxx` | BEL-273: `5300` PR #42, `5310` PR #41 |
+| key | held by | state |
+| --- | --- | --- |
+| `20261005290000` | `api_keys_key_digest_and_revoked_at` (PR #40, BEL-273) | on `main` |
+| `20261005291000` | `stories_headline_invariant` (PR #34, BEL-233) | on `main` |
+| `20261005292000` | `story_byline_changes` (PR #38, BEL-249) | on `main` |
+| `20261005293000` | `stories_admin_delete_published_guard` (PR #15, BEL-71) | open |
+| `20261005300000` | `api_keys_owner_update_policy` (PR #52, BEL-273) | open |
+| `20261005305000` | `api_keys_revoked_at_monotonic` (PR #49, BEL-273) | open |
+| `20261005310000` | `api_keys_drop_key_hash` (PR #41, BEL-273) | open |
+
+**The next free key is `20261005320000`.** Take it, then add a row here in the same
+commit, or the table is a snapshot of a moment nobody can reconstruct.
+
+Two things this table got wrong the first time it was written, both caught by
+reading it back against the live branches rather than against memory:
+
+- It listed `5293` as "PR #41's first choice" — a vacated number. PR #41 renumbered
+  itself to `5310`, but PR #15 had independently taken `5293` for the published-delete
+  guard. A key is only free when nothing holds it, not when the holder that once
+  wanted it moved on.
+- It omitted `5290` entirely, even though `5290` is the highest key on `main` and the
+  block's own base. A block table that skips its first member is not a block table.
 
 Per-workstream blocks are better than one shared block once there is more than one
 stream in flight, because two authors in different workstreams then cannot collide
