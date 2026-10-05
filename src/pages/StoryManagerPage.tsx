@@ -9,13 +9,15 @@ import {
   Trash2,
   Loader2,
   Check,
-  X,
   Search,
   Eye,
   EyeOff,
   Star,
   ArrowLeft,
   Save,
+  Lock,
+  Unlock,
+  RotateCcw,
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -95,7 +97,7 @@ function StoryManager({ role, userId }: { role: 'writer' | 'admin'; userId: stri
       )}
 
       {view === 'edit' && (
-        <StoryEditor story={editingStory} onBack={handleBack} />
+        <StoryEditor story={editingStory} onBack={handleBack} authorId={userId} />
       )}
     </div>
   );
@@ -119,8 +121,9 @@ function StoryList({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'published' | 'draft' | 'headline'>('all');
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [actionTarget, setActionTarget] = useState<{ id: string; action: 'delete' } | null>(null);
+  const [acting, setActing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadStories = useCallback(async () => {
     setLoading(true);
@@ -151,12 +154,27 @@ function StoryList({
   });
 
   const handleDelete = async (id: string) => {
-    setDeleting(true);
+    setActing(true);
+    setActionError(null);
+    const story = stories.find((s) => s.id === id);
+    if (!story) return;
+
+    if (story.locked) {
+      setActionError('This story is locked and cannot be deleted. Unlock it first.');
+      setActing(false);
+      setActionTarget(null);
+      return;
+    }
+
     const { error } = await supabase.from('stories').delete().eq('id', id);
-    setDeleting(false);
-    setDeleteId(null);
+    setActing(false);
+    setActionTarget(null);
     if (error) {
-      alert('Failed to delete story: ' + error.message);
+      if (error.message.includes('row-level security')) {
+        setActionError('Delete blocked by security policy. The story may be locked.');
+      } else {
+        setActionError('Failed to delete story: ' + error.message);
+      }
       return;
     }
     await loadStories();
@@ -176,13 +194,10 @@ function StoryList({
 
   const toggleHeadline = async (story: Story) => {
     if (!story.is_headline) {
-      const { error: clearError } = await supabase
+      await supabase
         .from('stories')
         .update({ is_headline: false })
         .neq('id', story.id);
-      if (clearError) {
-        console.error('Failed to clear other headlines:', clearError.message);
-      }
     }
     const { error } = await supabase
       .from('stories')
@@ -195,8 +210,32 @@ function StoryList({
     await loadStories();
   };
 
+  const toggleLock = async (story: Story) => {
+    const { error } = await supabase
+      .from('stories')
+      .update({ locked: !story.locked })
+      .eq('id', story.id);
+    if (error) {
+      alert('Failed to toggle lock: ' + error.message);
+      return;
+    }
+    await loadStories();
+  };
+
   return (
     <div>
+      {actionError && (
+        <div className="mb-4 p-4 rounded-lg bg-error-50 border border-error-200 flex items-start justify-between gap-3">
+          <p className="font-sans text-sm font-semibold text-error-700">{actionError}</p>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-error-600 hover:text-error-800 flex-shrink-0"
+          >
+            <Unlock className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-3 mb-4 items-stretch sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
@@ -271,9 +310,17 @@ function StoryList({
                           className="w-10 h-10 rounded object-cover flex-shrink-0"
                         />
                       )}
-                      <span className="font-sans text-sm font-semibold text-stone-800 line-clamp-2">
-                        {story.title}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="font-sans text-sm font-semibold text-stone-800 line-clamp-2">
+                          {story.title}
+                        </span>
+                        {story.locked && (
+                          <span className="inline-flex items-center gap-1 mt-0.5 font-sans text-xs font-bold text-primary-700 bg-primary-50 px-1.5 py-0.5 rounded">
+                            <Lock className="w-3 h-3" />
+                            Locked
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="py-3 px-4 hidden sm:table-cell">
@@ -326,13 +373,27 @@ function StoryList({
                         <Pencil className="w-4 h-4" />
                       </button>
                       {role === 'admin' && (
-                        <button
-                          onClick={() => setDeleteId(story.id)}
-                          className="p-1.5 rounded-lg text-stone-500 hover:text-error-600 hover:bg-error-50 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => toggleLock(story)}
+                            className="p-1.5 rounded-lg transition-colors"
+                            title={story.locked ? 'Unlock story' : 'Lock story (prevent deletion)'}
+                          >
+                            {story.locked ? (
+                              <Lock className="w-4 h-4 text-primary-700" />
+                            ) : (
+                              <Unlock className="w-4 h-4 text-stone-400 hover:text-primary-700" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setActionTarget({ id: story.id, action: 'delete' })}
+                            disabled={story.locked}
+                            className="p-1.5 rounded-lg text-stone-500 hover:text-error-600 hover:bg-error-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            title={story.locked ? 'Unlock to delete' : 'Delete story'}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -345,17 +406,17 @@ function StoryList({
 
       <p className="font-sans text-xs text-stone-400 mt-3 text-center">
         {filtered.length} {filtered.length === 1 ? 'story' : 'stories'}
-        {role === 'writer' && ' — only admins can delete stories'}
+        {role === 'writer' && ' — only admins can delete or lock stories'}
       </p>
 
-      {deleteId && (
+      {actionTarget && (
         <ConfirmDialog
           title="Delete this story?"
           message="This will permanently remove the story and all its comments. This action cannot be undone."
           confirmLabel="Delete"
-          loading={deleting}
-          onConfirm={() => handleDelete(deleteId)}
-          onCancel={() => setDeleteId(null)}
+          loading={acting}
+          onConfirm={() => handleDelete(actionTarget.id)}
+          onCancel={() => setActionTarget(null)}
         />
       )}
     </div>
@@ -365,7 +426,7 @@ function StoryList({
 // ============================================================
 // STORY EDITOR
 // ============================================================
-function StoryEditor({ story, onBack }: { story: Story | null; onBack: () => void }) {
+function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack: () => void; authorId: string }) {
   const [title, setTitle] = useState(story?.title ?? '');
   const [slug, setSlug] = useState(story?.slug ?? '');
   const [excerpt, setExcerpt] = useState(story?.excerpt ?? '');
@@ -429,7 +490,9 @@ function StoryEditor({ story, onBack }: { story: Story | null; onBack: () => voi
         return;
       }
     } else {
-      const { error: insertError } = await supabase.from('stories').insert(payload);
+      const { error: insertError } = await supabase
+        .from('stories')
+        .insert({ ...payload, author_id: authorId });
       if (insertError) {
         setError(insertError.message);
         setSaving(false);

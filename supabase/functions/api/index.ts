@@ -26,7 +26,7 @@ function errorResponse(message: string, status = 400) {
 
 interface ApiRequest {
   resource: "stories" | "weather";
-  action: "create" | "update" | "delete" | "upsert" | "list";
+  action: "create" | "update" | "delete" | "upsert" | "list" | "lock" | "unlock" | "unpublish" | "publish";
   data?: Record<string, unknown>;
   id?: string;
 }
@@ -174,9 +174,76 @@ Deno.serve(async (req: Request) => {
         if (profile.role !== "admin") {
           return errorResponse("Only admins can delete stories", 403);
         }
+        // Check if story is locked before deleting
+        const { data: storyRow, error: fetchError } = await supabase
+          .from("stories")
+          .select("locked")
+          .eq("id", id)
+          .maybeSingle();
+        if (fetchError) return errorResponse(fetchError.message, 500);
+        if (!storyRow) return errorResponse("Story not found", 404);
+        if (storyRow.locked) {
+          return errorResponse("Story is locked and cannot be deleted. Unlock it first.", 409);
+        }
         const { error } = await supabase.from("stories").delete().eq("id", id);
         if (error) return errorResponse(error.message, 500);
         return jsonResponse({ success: true });
+      }
+
+      if (action === "unpublish") {
+        if (!id) return errorResponse("Unpublish requires 'id'", 400);
+        const { data: story, error } = await supabase
+          .from("stories")
+          .update({ published: false, updated_at: new Date().toISOString() })
+          .eq("id", id)
+          .select()
+          .single();
+        if (error) return errorResponse(error.message, 500);
+        return jsonResponse({ story });
+      }
+
+      if (action === "publish") {
+        if (!id) return errorResponse("Publish requires 'id'", 400);
+        const { data: story, error } = await supabase
+          .from("stories")
+          .update({ published: true, updated_at: new Date().toISOString() })
+          .eq("id", id)
+          .select()
+          .single();
+        if (error) return errorResponse(error.message, 500);
+        return jsonResponse({ story });
+      }
+
+      if (action === "lock") {
+        if (!id) return errorResponse("Lock requires 'id'", 400);
+        if (profile.role !== "admin") {
+          return errorResponse("Only admins can lock stories", 403);
+        }
+        const updateData: Record<string, unknown> = { locked: true, updated_at: new Date().toISOString() };
+        if (data?.locked_until) updateData.locked_until = data.locked_until;
+        const { data: story, error } = await supabase
+          .from("stories")
+          .update(updateData)
+          .eq("id", id)
+          .select()
+          .single();
+        if (error) return errorResponse(error.message, 500);
+        return jsonResponse({ story });
+      }
+
+      if (action === "unlock") {
+        if (!id) return errorResponse("Unlock requires 'id'", 400);
+        if (profile.role !== "admin") {
+          return errorResponse("Only admins can unlock stories", 403);
+        }
+        const { data: story, error } = await supabase
+          .from("stories")
+          .update({ locked: false, locked_until: null, updated_at: new Date().toISOString() })
+          .eq("id", id)
+          .select()
+          .single();
+        if (error) return errorResponse(error.message, 500);
+        return jsonResponse({ story });
       }
 
       if (action === "list") {
@@ -195,9 +262,6 @@ Deno.serve(async (req: Request) => {
     // ===== WEATHER =====
     if (resource === "weather") {
       // Fields added by 20261005140000_weather_forecasts_deferred_fields.sql.
-      // They are optional on the way in on purpose: a caller that omits one
-      // leaves the stored value alone, so re-running a publish that predates
-      // these columns does not blank a backfilled row.
       const OPTIONAL_WEATHER_FIELDS = [
         "precipitation_chance",
         "sunrise",

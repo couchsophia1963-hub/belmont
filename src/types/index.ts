@@ -19,6 +19,8 @@ export interface Story {
   author_id: string | null;
   is_headline: boolean;
   published: boolean;
+  locked: boolean;
+  locked_until: string | null;
   created_at: string;
   updated_at: string;
 }

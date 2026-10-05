@@ -356,12 +356,43 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -d '{"resource":"stories","action":"create",
        "data":{"title":"...","body":"...","category":"..."}}'
 
+# Update a story
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"stories","action":"update","id":"UUID",
+       "data":{"title":"new title","published":true}}'
+
+# Delete a story (admin only, not locked)
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"stories","action":"delete","id":"UUID"}'
+
+# Lock a story (admin only)
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"stories","action":"lock","id":"UUID"}'
+
+# Publish / unpublish
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"stories","action":"unpublish","id":"UUID"}'
+
 # Update weather
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"weather","action":"upsert",
-       "data":{"forecast_date":"2026-10-05","high_temp":70,...}}'`}</pre>
+       "data":{"forecast_date":"2026-10-05","high_temp":70,...}}'
+
+# Delete a weather forecast
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"weather","action":"delete","id":"UUID"}'`}</pre>
           </div>
         </div>
       </section>

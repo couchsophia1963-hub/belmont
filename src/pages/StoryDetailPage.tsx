@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 import { CommentSection } from '@/components/CommentSection';
 import type { Story, Profile } from '@/types';
-import { Loader2, ArrowLeft, Calendar, Clock, Tag } from 'lucide-react';
+import { Loader2, ArrowLeft, Calendar, Clock, Tag, Lock } from 'lucide-react';
+import { ShareButton } from '@/components/ShareButton';
 
 type StoryWithAuthor = Story & {
   author: Pick<Profile, 'display_name'> | null;
 };
 
 const STORY_COLUMNS =
-  'id, slug, title, excerpt, body, image_url, category, author_id, is_headline, published, created_at, updated_at';
+  'id, slug, title, excerpt, body, image_url, category, author_id, is_headline, published, locked, locked_until, created_at, updated_at';
 
 export function StoryDetailPage() {
   const { slug } = useParams<{ slug: string }>();
+  const { profile } = useAuth();
   const [story, setStory] = useState<StoryWithAuthor | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,12 +25,14 @@ export function StoryDetailPage() {
     if (!slug) return;
     setLoading(true);
     (async () => {
-      const { data, error: queryError } = await supabase
-        .from('stories')
-        .select(STORY_COLUMNS)
-        .eq('slug', slug)
-        .eq('published', true)
-        .maybeSingle();
+      // Writers and admins can view unpublished stories; everyone else
+      // only sees published ones.
+      const canSeeUnpublished = profile?.role === 'writer' || profile?.role === 'admin';
+      let query = supabase.from('stories').select(STORY_COLUMNS).eq('slug', slug);
+      if (!canSeeUnpublished) {
+        query = query.eq('published', true);
+      }
+      const { data, error: queryError } = await query.maybeSingle();
 
       if (queryError) {
         setError('Failed to load story');
@@ -110,6 +115,17 @@ export function StoryDetailPage() {
           <Tag className="w-3 h-3" />
           {story.category}
         </span>
+        {!story.published && (
+          <span className="inline-flex items-center gap-1 font-sans text-xs font-bold uppercase tracking-wider text-white bg-stone-500 px-3 py-1 rounded-full">
+            Draft
+          </span>
+        )}
+        {story.locked && (
+          <span className="inline-flex items-center gap-1 font-sans text-xs font-bold uppercase tracking-wider text-primary-700 bg-primary-50 px-3 py-1 rounded-full border border-primary-200">
+            <Lock className="w-3 h-3" />
+            Locked
+          </span>
+        )}
       </div>
 
       <h1 className="font-serif text-3xl sm:text-5xl font-black text-stone-900 leading-tight mb-4">
@@ -120,20 +136,23 @@ export function StoryDetailPage() {
         {story.excerpt}
       </p>
 
-      <div className="flex flex-wrap items-center gap-4 pb-6 mb-8 border-b border-stone-200 font-sans text-sm text-stone-500">
-        {story.author?.display_name && (
-          <span>
-            By <strong className="text-stone-700">{story.author.display_name}</strong>
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-6 mb-8 border-b border-stone-200">
+        <div className="flex flex-wrap items-center gap-4 font-sans text-sm text-stone-500">
+          {story.author?.display_name && (
+            <span>
+              By <strong className="text-stone-700">{story.author.display_name}</strong>
+            </span>
+          )}
+          <span className="flex items-center gap-1.5">
+            <Calendar className="w-4 h-4" />
+            {dateStr}
           </span>
-        )}
-        <span className="flex items-center gap-1.5">
-          <Calendar className="w-4 h-4" />
-          {dateStr}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <Clock className="w-4 h-4" />
-          {timeStr}
-        </span>
+          <span className="flex items-center gap-1.5">
+            <Clock className="w-4 h-4" />
+            {timeStr}
+          </span>
+        </div>
+        <ShareButton slug={story.slug} title={story.title} />
       </div>
 
       {story.image_url && (
@@ -150,6 +169,16 @@ export function StoryDetailPage() {
         {paragraphs.map((para, idx) => (
           <p key={idx}>{para}</p>
         ))}
+      </div>
+
+      <div className="mt-8 pt-6 border-t border-stone-200 flex items-center justify-between">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-1.5 font-sans text-sm font-semibold text-primary-700 hover:underline"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to Home
+        </Link>
+        <ShareButton slug={story.slug} title={story.title} />
       </div>
 
       <CommentSection storyId={story.id} />
