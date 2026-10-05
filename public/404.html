@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Belmont County News</title>
+    <script>
+      /*
+       * GitHub Pages answers a path it cannot resolve with this file. It does
+       * not fall back to index.html.
+       *
+       * The app uses BrowserRouter (BEL-92), so a real story address such as
+       * /belmont/story/<slug> has to reach the router as a path. Without this
+       * file GitHub serves its own generic 404 and the reader gets an error
+       * page for a story that exists. On the Bolt host the same address works
+       * today, because that host returns index.html for unknown paths, so this
+       * is the piece that makes the two hosts behave the same way.
+       *
+       * So: remember the path the reader asked for, then send them to the site
+       * root, where index.html does exist. src/main.tsx puts the path back
+       * before the router mounts, and the story renders.
+       *
+       * The base is read from this file's own URL, because Pages always serves
+       * 404.html from the site root. That works at `/` and at `/belmont/` with
+       * nothing configured here, and keeps working if the repository is renamed
+       * or the site moves behind a custom domain.
+       */
+      (function () {
+        var self = document.currentScript;
+        // Absolute: https://<host>/<base>/
+        var baseUrl = self && self.src ? self.src.replace(/404\.html(\?.*)?$/, '') : '/';
+        // Path only, for comparing against what the reader asked for.
+        var basePath = baseUrl.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
+
+        try {
+          var asked = window.location.pathname + window.location.search + window.location.hash;
+          // Nothing to restore when the reader was already asking for the root.
+          if (asked !== basePath && asked !== basePath + 'index.html') {
+            window.sessionStorage.setItem('belmont:restore-path', asked);
+          }
+        } catch (err) {
+          // Storage can be refused (private browsing, disabled cookies). The
+          // reader lands on the homepage, which is the behaviour from before
+          // BrowserRouter, not an error page. Nothing to recover here.
+        }
+
+        window.location.replace(baseUrl);
+      })();
+    </script>
+  </head>
+  <body>
+    <p>Loading Belmont County News&hellip;</p>
+  </body>
+</html>

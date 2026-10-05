@@ -1,0 +1,55 @@
+# Code owners for couchsophia1963-hub/belmont.
+#
+# BEL-223. This file exists for one reason: to make `main` unmergeable by the
+# author of a pull request.
+#
+# The measured problem. As of 2026-10-05T17:52Z this repository has merged 28
+# pull requests. 27 of them were authored by EasySchedule and merged by
+# EasySchedule. The 28th, PR #1, was the only one merged by a second identity.
+# Across all 28 there are zero approving reviews. The three reviews that exist
+# on the open queue are all `COMMENTED`, and all three are from EasySchedule on
+# pull requests EasySchedule authored. So the history is not a near-miss; the
+# approval gate has never once been satisfied.
+#
+# This count is not stable, which is the point. The first measurement of this
+# comment, taken seven minutes earlier at 17:45Z, was 27 merged and 26
+# self-merged. PR #39 was then merged by EasySchedule on a branch EasySchedule
+# authored, with zero reviews, at 17:47:57Z -- while this pull request was being
+# written. The gap does not close on its own.
+#
+# Why a count of 1 is enough, and why this file is still required. GitHub
+# refuses to let an author approve their own pull request at all -- not "the
+# approval does not count", but a hard refusal:
+#
+#   POST /repos/couchsophia1963-hub/belmont/pulls/42/reviews  (event=APPROVE)
+#   -> 422 Unprocessable Entity
+#      "Review Can not approve your own pull request"
+#
+# reproduced on 2026-10-05 against PRs #42 and #40, and matched by GraphQL on
+# #40. So `required_approving_review_count: 1` already forces a second GitHub
+# identity. Two reviewers are not required and are not wanted: there are only
+# two identities with write on this repository, so requiring 2 approvals would
+# deadlock the repo permanently rather than merely slow it.
+#
+# What this file adds on top of the count. The count says "somebody who is not
+# the author". It does not say *which* somebody, and with two identities that
+# is not a meaningful ambiguity -- but it would become one the moment a third
+# login is added. Naming the owner here means the approving identity is written
+# down in the repository instead of being implied by whoever happens to hold
+# write. It also makes `require_code_owner_review: true` in the ruleset
+# satisfiable; without this file that setting has nothing to match and would
+# block every pull request.
+#
+# THE SINGLE POINT OF FAILURE, stated plainly: every merge to `main` now
+# depends on one human login. `dustinwloring1988` is the only collaborator here
+# who is not EasySchedule, and the only person who can satisfy this. That person
+# being unavailable means `main` is blocked. That is the intended trade -- a
+# blocked `main` is the correct outcome when no second pair of eyes exists --
+# but it is a real cost and it is the thing to revisit if this becomes a
+# bottleneck. The fix for it is more identities, not a weaker rule.
+#
+# `*` covers every path. There is no intent here to exempt `docs/**` or
+# `supabase/**`: the evidence that motivated BEL-223 includes self-merges of
+# database migrations, where an unreviewed change is least recoverable.
+
+* @dustinwloring1988

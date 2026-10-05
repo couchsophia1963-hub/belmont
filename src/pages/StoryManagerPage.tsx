@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { setStoryHeadline } from '@/lib/headline';
 import type { Story } from '@/types';
 import {
   Plus,
@@ -17,7 +18,6 @@ import {
   Save,
   Lock,
   Unlock,
-  RotateCcw,
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -90,7 +90,6 @@ function StoryManager({ role, userId }: { role: 'writer' | 'admin'; userId: stri
         <StoryList
           key={refreshKey}
           role={role}
-          userId={userId}
           onEdit={handleEdit}
           onNew={handleNew}
         />
@@ -108,12 +107,10 @@ function StoryManager({ role, userId }: { role: 'writer' | 'admin'; userId: stri
 // ============================================================
 function StoryList({
   role,
-  userId,
   onEdit,
   onNew,
 }: {
   role: 'writer' | 'admin';
-  userId: string;
   onEdit: (story: Story) => void;
   onNew: () => void;
 }) {
@@ -157,7 +154,11 @@ function StoryList({
     setActing(true);
     setActionError(null);
     const story = stories.find((s) => s.id === id);
-    if (!story) return;
+    if (!story) {
+      setActing(false);
+      setActionTarget(null);
+      return;
+    }
 
     if (story.locked) {
       setActionError('This story is locked and cannot be deleted. Unlock it first.');
@@ -166,21 +167,45 @@ function StoryList({
       return;
     }
 
-    const { error } = await supabase.from('stories').delete().eq('id', id);
+    // `.select('id')` makes this a DELETE ... RETURNING. A row the policy's
+    // USING clause filters out is suppressed silently: Postgres reports no
+    // error, and without RETURNING PostgREST answers 204, which is
+    // indistinguishable from a real delete. An empty array is the proof that
+    // nothing was deleted, and it holds whatever status code came back.
+    const { data: deleted, error } = await supabase
+      .from('stories')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
     setActing(false);
     setActionTarget(null);
+
     if (error) {
-      if (error.message.includes('row-level security')) {
-        setActionError('Delete blocked by security policy. The story may be locked.');
-      } else {
-        setActionError('Failed to delete story: ' + error.message);
-      }
+      setActionError('Failed to delete story: ' + error.message);
+      return;
+    }
+    if (!deleted || deleted.length === 0) {
+      setActionError('Delete was refused. Nothing was deleted. Unlock or unpublish the story first.');
       return;
     }
     await loadStories();
   };
 
+  // The database refuses this write for a non-admin on a locked story
+  // (20261005200000_stories_lock_column_guard.sql). Checking here means a writer finds
+  // out from the button instead of from an error dialog naming a story uuid, and it
+  // says who to ask. This is not the control. The trigger is.
+  const unpublishBlocked = (story: Story) =>
+    role !== 'admin' && story.locked && story.published;
+
   const togglePublished = async (story: Story) => {
+    if (unpublishBlocked(story)) {
+      setActionError('This story is locked, so only an admin can unpublish it. Ask an admin to unpublish it, or to unlock it first.');
+      setActionTarget(null);
+      return;
+    }
+
     const { error } = await supabase
       .from('stories')
       .update({ published: !story.published })
@@ -193,19 +218,12 @@ function StoryList({
   };
 
   const toggleHeadline = async (story: Story) => {
-    if (!story.is_headline) {
-      await supabase
-        .from('stories')
-        .update({ is_headline: false })
-        .neq('id', story.id);
-    }
-    const { error } = await supabase
-      .from('stories')
-      .update({ is_headline: !story.is_headline })
-      .eq('id', story.id);
-    if (error) {
-      alert('Failed to update: ' + error.message);
-      return;
+    setActionError(null);
+    const outcome = await setStoryHeadline({ column: 'id', value: story.id }, !story.is_headline, {
+      confirmable: story.published,
+    });
+    if (!outcome.ok) {
+      setActionError(outcome.message);
     }
     await loadStories();
   };
@@ -338,8 +356,15 @@ function StoryList({
                   <td className="py-3 px-2 text-center">
                     <button
                       onClick={() => togglePublished(story)}
-                      className="p-1.5 rounded-lg transition-colors"
-                      title={story.published ? 'Unpublish' : 'Publish'}
+                      disabled={unpublishBlocked(story)}
+                      className="p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={
+                        unpublishBlocked(story)
+                          ? 'Locked: only an admin can unpublish this story'
+                          : story.published
+                            ? 'Unpublish'
+                            : 'Publish'
+                      }
                     >
                       {story.published ? (
                         <Eye className="w-4 h-4 text-success-600" />
@@ -474,7 +499,6 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
       body: body.trim(),
       image_url: imageUrl.trim() || null,
       category,
-      is_headline: isHeadline,
       published,
       updated_at: new Date().toISOString(),
     };
@@ -500,11 +524,19 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
       }
     }
 
-    if (isHeadline && !story?.is_headline) {
-      await supabase
-        .from('stories')
-        .update({ is_headline: false })
-        .neq('slug', finalSlug);
+    // The headline flag is written after the story, never inside the same payload.
+    // Promoting it in the payload put the promotion before the demotion, and the
+    // demotion's error was discarded, so a failed demotion left two headlines.
+    if (isHeadline !== Boolean(story?.is_headline)) {
+      const target = story
+        ? { column: 'id' as const, value: story.id }
+        : { column: 'slug' as const, value: finalSlug };
+      const outcome = await setStoryHeadline(target, isHeadline, { confirmable: published });
+      if (!outcome.ok) {
+        setError(outcome.message);
+        setSaving(false);
+        return;
+      }
     }
 
     setSaving(false);

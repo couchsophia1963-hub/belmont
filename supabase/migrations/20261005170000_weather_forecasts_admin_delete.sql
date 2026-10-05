@@ -67,9 +67,19 @@
    one enforcing the rule at any moment.
 
    Merge redeploys nothing. Applying this file is a separate step, and so is the deploy.
+
+7. Safe to re-run
+   Both DROPs are `IF EXISTS` and the CREATE is preceded by a drop of the same name, which
+   is the pattern every other policy in this directory already follows. That last part was
+   missing: this file originally dropped only the old `weather_writer_delete` and then
+   created `weather_admin_delete`, so a second run failed with 42710 duplicate_policy and
+   a replay from the top could never finish. It matters because the migrations here were
+   largely applied by hand through the dashboard, so the first `db push` is a replay and
+   this file was the one that would have stopped it.
 */
 
 DROP POLICY IF EXISTS "weather_writer_delete" ON public.weather_forecasts;
+DROP POLICY IF EXISTS "weather_admin_delete" ON public.weather_forecasts;
 
 CREATE POLICY "weather_admin_delete"
   ON public.weather_forecasts FOR DELETE TO authenticated

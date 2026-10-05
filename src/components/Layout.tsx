@@ -1,7 +1,18 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
-import { Newspaper, LayoutDashboard, LogOut, User, Menu, X, FileText, Sun, Moon } from 'lucide-react';
+import {
+  Newspaper,
+  LayoutDashboard,
+  LogOut,
+  User,
+  Menu,
+  X,
+  FileText,
+  Sun,
+  Moon,
+  ChevronDown,
+} from 'lucide-react';
 import { useState } from 'react';
 
 export function Header() {
@@ -35,10 +46,6 @@ export function Header() {
 
           <nav className="hidden md:flex items-center gap-1">
             <NavLink to="/">Home</NavLink>
-            {session && <NavLink to="/dashboard">Dashboard</NavLink>}
-            {session && profile && (profile.role === 'writer' || profile.role === 'admin') && (
-              <NavLink to="/stories">Stories</NavLink>
-            )}
             {!session ? (
               <>
                 <Link
@@ -55,44 +62,18 @@ export function Header() {
                 </Link>
               </>
             ) : (
-              <div className="flex items-center gap-2 ml-2">
-                <span className="font-sans text-sm text-stone-600 dark:text-stone-300">
-                  {profile?.display_name || profile?.email}
-                </span>
-                {profile && (
-                  <span className="font-sans text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300">
-                    {profile.role}
-                  </span>
-                )}
-                <button
-                  onClick={handleSignOut}
-                  className="p-2 rounded-lg text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </div>
+              <ProfileMenu profile={profile} onSignOut={handleSignOut} />
             )}
-            <button
-              onClick={toggleTheme}
-              className="ml-1 p-2 rounded-lg text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </nav>
 
           <div className="flex items-center gap-1 md:hidden">
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
+            {session && <ProfileMenu profile={profile} onSignOut={handleSignOut} />}
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button
               className="p-2 rounded-lg text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
               onClick={() => setMenuOpen(!menuOpen)}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             >
               {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -110,25 +91,7 @@ export function Header() {
             >
               Home
             </Link>
-            {session && (
-              <Link
-                to="/dashboard"
-                onClick={() => setMenuOpen(false)}
-                className="px-3 py-2 rounded-lg font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800"
-              >
-                Dashboard
-              </Link>
-            )}
-            {session && profile && (profile.role === 'writer' || profile.role === 'admin') && (
-              <Link
-                to="/stories"
-                onClick={() => setMenuOpen(false)}
-                className="px-3 py-2 rounded-lg font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800"
-              >
-                Stories
-              </Link>
-            )}
-            {!session ? (
+            {!session && (
               <div className="flex gap-2">
                 <Link
                   to="/auth"
@@ -145,34 +108,124 @@ export function Header() {
                   Sign Up
                 </Link>
               </div>
-            ) : (
-              <div className="flex items-center justify-between px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-stone-500 dark:text-stone-400" />
-                  <span className="font-sans text-sm text-stone-700 dark:text-stone-200">
-                    {profile?.display_name || profile?.email}
-                  </span>
-                  {profile && (
-                    <span className="font-sans text-xs font-bold uppercase px-2 py-0.5 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300">
-                      {profile.role}
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    handleSignOut();
-                  }}
-                  className="p-2 rounded-lg text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </div>
             )}
           </div>
         </div>
       )}
     </header>
+  );
+}
+
+function ProfileMenu({
+  profile,
+  onSignOut,
+}: {
+  profile: ReturnType<typeof useAuth>['profile'];
+  onSignOut: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative ml-2">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex items-center gap-2 rounded-lg px-3 py-2 font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300">
+          <User className="h-4 w-4" />
+        </span>
+        <span className="hidden lg:inline max-w-32 truncate">
+          {profile?.display_name || profile?.email || 'Profile'}
+        </span>
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-2 shadow-xl"
+        >
+          <div className="border-b border-stone-200 dark:border-stone-700 px-3 pb-2 mb-2">
+            <p className="truncate font-sans text-sm font-bold text-stone-900 dark:text-stone-50">
+              {profile?.display_name || profile?.email}
+            </p>
+            {profile && (
+              <p className="mt-0.5 font-sans text-xs font-bold uppercase tracking-wider text-primary-700 dark:text-primary-300">
+                {profile.role}
+              </p>
+            )}
+          </div>
+          <ProfileLink
+            to="/dashboard"
+            icon={<LayoutDashboard className="h-4 w-4" />}
+            onClick={() => setOpen(false)}
+          >
+            Dashboard
+          </ProfileLink>
+          {profile && (profile.role === 'writer' || profile.role === 'admin') && (
+            <ProfileLink
+              to="/stories"
+              icon={<FileText className="h-4 w-4" />}
+              onClick={() => setOpen(false)}
+            >
+              Stories
+            </ProfileLink>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              void onSignOut();
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 font-sans text-sm font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfileLink({
+  to,
+  icon,
+  children,
+  onClick,
+}: {
+  to: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <Link
+      to={to}
+      role="menuitem"
+      onClick={onClick}
+      className="flex items-center gap-2 rounded-lg px-3 py-2 font-sans text-sm font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-primary-700 dark:hover:text-primary-400 transition-colors"
+    >
+      {icon}
+      {children}
+    </Link>
+  );
+}
+
+function ThemeToggle({ theme, onToggle }: { theme: 'light' | 'dark'; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="ml-1 p-2 rounded-lg text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
+      {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+    </button>
   );
 }
 
@@ -182,8 +235,6 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
       to={to}
       className="px-3 py-2 rounded-lg font-sans text-sm font-semibold text-stone-600 dark:text-stone-300 hover:text-primary-700 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-colors flex items-center gap-1.5"
     >
-      {to === '/dashboard' && <LayoutDashboard className="w-4 h-4" />}
-      {to === '/stories' && <FileText className="w-4 h-4" />}
       {children}
     </Link>
   );
