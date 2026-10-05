@@ -1,7 +1,7 @@
 -- ============================================================
 -- Landing test: story_byline_changes (BEL-249)
 --
--- Run this AFTER applying 20261005220000_story_byline_changes.sql.
+-- Run this AFTER applying 20261005292000_story_byline_changes.sql.
 -- It is safe on the live project: everything runs inside one transaction that
 -- ROLLBACKs, so it creates and destroys its own fixtures and leaves no row,
 -- no policy and no grant behind. Paste the whole file into the Supabase SQL
