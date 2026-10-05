@@ -171,29 +171,38 @@ $$;
 commit;
 
 -- ============================================================
--- 6. Grants — the one step that must not be skipped if they are column-scoped
+-- 6. Grants — one question left: can `authenticated` still UPDATE?
 -- ============================================================
--- Run this check after the transaction above:
+-- `anon` is settled and needs no statement here. Measured on the live project:
+-- `select=*` as anon returns all nine existing columns, so the anon read grant
+-- is table-level and already covers any column added here. An INSERT as anon is
+-- refused `42501` by RLS, so anon cannot write and does not need to. **There is
+-- deliberately no `grant ... to anon` in this file.** Issuing one would widen
+-- nothing useful and is one more thing to get wrong on an unattended run.
 --
---   select distinct grantee from information_schema.column_privileges
---    where table_schema = 'public' and table_name = 'weather_forecasts';
+-- What is NOT settled is `authenticated`, and that is the question that matters.
+-- The admin panel writes as `authenticated`, so if its grants are column-scoped
+-- rather than table-level it can read the new columns and not write them, and
+-- every admin weather save fails. Run this after the transaction above:
 --
--- NO ROWS  -> grants are table-level (the Supabase default). They already cover
---             the six new columns. Stop here. Nothing to do.
+--   select grantee, privilege_type, count(*)
+--     from information_schema.column_privileges
+--    where table_schema = 'public' and table_name = 'weather_forecasts'
+--    group by 1, 2 order by 1, 2;
 --
--- ROWS     -> grants are column-scoped. The admin panel would be able to READ
---             the new columns but not WRITE them, and every admin weather save
---             would fail. Extend them in this same change, not as a follow-up:
+-- NO ROWS for `authenticated`  -> its grants are table-level (the Supabase
+--   default) and already cover the six new columns. Stop here. Nothing to do.
 --
---   -- grant select on public.weather_forecasts
---   --   to anon, authenticated, service_role;
+-- ROWS for `authenticated`      -> column-scoped. Extend in this same change,
+--   not as a follow-up:
+--
 --   -- grant insert, update, delete on public.weather_forecasts
 --   --   to authenticated, service_role;
 --
--- Left commented out on purpose. Granting to `anon` widens access if the current
--- column-scoped grants were narrower than table-level, and that call should be a
--- person's, made after reading the check above rather than by a migration that
--- runs unattended.
+-- Left commented on purpose. Which privileges that role actually needs is a
+-- person's call made after reading the check, not a migration's, and the
+-- migration is written to run unattended. Note that column_privileges reports
+-- column-level grants only: a row here is positive proof of column scoping.
 --
 -- `weather_public_read` is `TO anon, authenticated USING (true)`, and the
 -- homepage strip reads these columns as anon. So whatever the answer to the
