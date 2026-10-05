@@ -57,6 +57,11 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   };
 
   useEffect(() => {
+    // A write error belongs to the story that produced it. Carried to the next story
+    // it rendered a stale banner above this one's own message, which is the
+    // contradiction the closed-state copy exists to avoid. Found in review on
+    // BEL-93, pre-existing rather than introduced there.
+    setError(null);
     loadComments();
     loadDeletableIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
