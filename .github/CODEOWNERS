@@ -3,13 +3,19 @@
 # BEL-223. This file exists for one reason: to make `main` unmergeable by the
 # author of a pull request.
 #
-# The measured problem. As of 2026-10-05T17:45Z this repository has merged 27
-# pull requests. 26 of them were authored by EasySchedule and merged by
-# EasySchedule. The 27th, PR #1, was the only one merged by a second identity.
-# Across all 27 there are zero approving reviews. The three reviews that exist
+# The measured problem. As of 2026-10-05T17:52Z this repository has merged 28
+# pull requests. 27 of them were authored by EasySchedule and merged by
+# EasySchedule. The 28th, PR #1, was the only one merged by a second identity.
+# Across all 28 there are zero approving reviews. The three reviews that exist
 # on the open queue are all `COMMENTED`, and all three are from EasySchedule on
 # pull requests EasySchedule authored. So the history is not a near-miss; the
 # approval gate has never once been satisfied.
+#
+# This count is not stable, which is the point. The first measurement of this
+# comment, taken seven minutes earlier at 17:45Z, was 27 merged and 26
+# self-merged. PR #39 was then merged by EasySchedule on a branch EasySchedule
+# authored, with zero reviews, at 17:47:57Z -- while this pull request was being
+# written. The gap does not close on its own.
 #
 # Why a count of 1 is enough, and why this file is still required. GitHub
 # refuses to let an author approve their own pull request at all -- not "the

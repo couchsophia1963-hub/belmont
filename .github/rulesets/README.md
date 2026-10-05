@@ -5,6 +5,18 @@ It is a file, not something this repository applies to itself. Applying it needs
 admin on the repository, and no account with admin is available to the agents
 that write here. See "Who can apply this" below.
 
+## Why this exists, in one number
+
+28 pull requests have been merged on this repository. 27 were authored by
+`EasySchedule` and merged by `EasySchedule`. The 28th is the only one merged by a
+second identity. There are zero approving reviews across all 28.
+
+That number moved while this pull request was being written. The first count, at
+17:45Z, was 27 merged and 26 self-merged. At 17:47:57Z PR #39 — authored by
+`EasySchedule` on a branch `EasySchedule` authored, with zero reviews — was merged
+by `EasySchedule`. Nothing was blocking it. Waiting does not apply this rule; only
+`couchsophia1963-hub` does.
+
 ## What it enforces
 
 | Rule | Setting | Why |
@@ -36,6 +48,10 @@ Rulesets are a repository-admin object. `PUT /repos/{owner}/{repo}/rulesets` fro
 either of the first two rows returns `403 Resource not accessible by integration`.
 The only account that can apply this file is `couchsophia1963-hub`.
 
+**Neither the agents nor the board operator can apply this.** That is worth
+reading twice, because it is the whole remaining blocker and it is not a
+scheduling problem. It needs one specific account.
+
 ## Apply order
 
 The order is load-bearing. Each step depends on the one before it existing.
@@ -45,7 +61,7 @@ The order is load-bearing. Each step depends on the one before it existing.
    `require_code_owner_review: true` can match anything; a ruleset that requires a
    code owner review when no code owner is defined blocks all pull requests
    including the one adding it. This merge is also the first time in this
-   repository's history that the merger is not the author.
+   repository's history where the merger is not the author.
 2. **Apply the ruleset**, as `couchsophia1963-hub`:
 
    ```sh
@@ -68,13 +84,16 @@ The order is load-bearing. Each step depends on the one before it existing.
    drops a parameter, so a successful write is not evidence that the rule is
    the rule that was asked for.
 4. **Rebase or re-run CI on the pull requests that have no check run.** Measured
-   2026-10-05T17:45Z: 15 pull requests open, 8 mergeable and 7 conflicting, and
-   **12 of the 15 have no `CI` run at all**, because `ci.yml` only began running
-   when PR #22 merged at 17:37:22Z. Under `strict_required_status_checks_policy`
-   those 12 cannot merge until they build against the current `main`.
+   2026-10-05T17:52Z: 14 pull requests open, all authored by `EasySchedule`, and
+   **11 of the 14 have no `CI` run at all**, because `ci.yml` only began running
+   when PR #22 merged at 17:37:22Z. Under
+   `strict_required_status_checks_policy` those 11 cannot merge until they build
+   against the current `main`. Mergeability is fluid — GitHub returned `MERGEABLE`
+   for 3 and was still recomputing the other 11 — so treat any single count of
+   "mergeable" PRs as a snapshot, not a queue length.
 5. **Approve the queue.** Each open pull request needs its own approval from
    `dustinwloring1988`. Turning this rule on does not release the queue; it
-   converts 15 self-merges into 15 human approvals.
+   converts 14 self-merges into 14 human approvals.
 
 ## Two consequences worth knowing before step 2
 
