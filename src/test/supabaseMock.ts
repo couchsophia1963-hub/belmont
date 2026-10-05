@@ -94,6 +94,28 @@ function builderFor(table: string): Builder {
     range: () => builder,
     single: () => builder,
     maybeSingle: () => builder,
+    // The PostgREST filter builders, listed rather than trapped by a Proxy.
+    // A Proxy would swallow a typo like `.selct()` and hand back a builder that
+    // answers every query with the same mocked result, so the test passes and the
+    // bug it was written to catch ships. Naming them keeps a typo a TypeError.
+    //
+    // The cost is that a page which starts filtering has to add its builder here
+    // too, and forgetting is a hard failure rather than a silent pass -- which is
+    // the direction that fails safe. `gte` is here because BEL-29's forecast
+    // window filters on it.
+    gt: () => builder,
+    gte: () => builder,
+    lt: () => builder,
+    lte: () => builder,
+    like: () => builder,
+    ilike: () => builder,
+    is: () => builder,
+    contains: () => builder,
+    overlaps: () => builder,
+    not: () => builder,
+    filter: () => builder,
+    match: () => builder,
+    textSearch: () => builder,
   } as unknown as Builder;
 
   return builder;
