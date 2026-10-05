@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { WeatherForecast } from '@/components/WeatherForecast';
+import { todayIsoDate } from '@/lib/forecastDay';
 import { HeadlineStory, StoryCard } from '@/components/StoryCard';
 import type { Story, WeatherForecast as WeatherType } from '@/types';
 import { Loader2, TrendingUp } from 'lucide-react';
@@ -24,6 +25,14 @@ export function HomePage() {
         supabase
           .from('weather_forecasts')
           .select('*')
+          // Drop rows already past. The strip shows the next few days from today,
+          // so a stale row left at the head of the table would otherwise consume
+          // the leading slot and push a real forecast day out of the window --
+          // which is what published yesterday's highs under today's name (BEL-29).
+          // This is a filter on an existing `date` column: no migration, no new
+          // column, no grant change. Filtering stale rows out of the read does
+          // not delete them; the admin page still lists every row.
+          .gte('forecast_date', todayIsoDate())
           .order('forecast_date', { ascending: true })
           .limit(7),
         supabase
