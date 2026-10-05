@@ -4,6 +4,10 @@ import { useAuth } from '@/lib/auth';
 import { WeatherForecast } from '@/components/WeatherForecast';
 import { todayIsoDate } from '@/lib/forecastDay';
 import { HeadlineStory, StoryCard } from '@/components/StoryCard';
+import {
+  SHELTER_BIDS_ACCURATE_STORY_URL,
+  SHELTER_BIDS_AUTHOR,
+} from '@/lib/shelterCorrection';
 import type { Story, WeatherForecast as WeatherType } from '@/types';
 import { Loader2, TrendingUp } from 'lucide-react';
 
@@ -91,6 +95,24 @@ export function HomePage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <aside
+        role="note"
+        className="mb-6 rounded-xl border border-stone-300 dark:border-stone-700 border-l-4 border-l-error-600 bg-stone-50 dark:bg-stone-900 px-4 py-3"
+      >
+        <p className="font-sans text-sm leading-relaxed text-stone-700 dark:text-stone-300">
+          Correction: the animal shelter bids item on this page is not Belmont News reporting and is
+          superseded. The accurate story, by {SHELTER_BIDS_AUTHOR}:{' '}
+          <a
+            href={SHELTER_BIDS_ACCURATE_STORY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline break-words hover:text-primary-700 dark:hover:text-primary-400"
+          >
+            {SHELTER_BIDS_ACCURATE_STORY_URL}
+          </a>
+        </p>
+      </aside>
+
       <WeatherForecast forecasts={displayWeather} totalDays={visibleDays} />
 
       {mainHeadline && <HeadlineStory story={mainHeadline} />}
