@@ -22,6 +22,7 @@ import {
   PRECIP_BASIS_SHORT,
   PRECIP_BASIS_LONG,
 } from '../lib/weatherContract';
+import { isForecastToday } from '../lib/forecastDay';
 
 export type ValidIconCode = (typeof VALID_ICON_CODES)[number];
 
@@ -135,7 +136,12 @@ export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) 
           {forecasts.map((day, idx) => {
             const Icon = getWeatherIcon(day.icon);
             const date = new Date(day.forecast_date + 'T00:00:00');
-            const isToday = idx === 0;
+            // Read "Today" off the date, never off the position in the array.
+            // Index 0 is only today if a row for today happens to be first, which
+            // is not a thing the query guarantees (BEL-29). When today's row is
+            // absent every card falls back to its weekday, which is honest: the
+            // strip shows a forecast for a day, and says which day.
+            const isToday = isForecastToday(day.forecast_date);
             const dayName = isToday
               ? 'Today'
               : date.toLocaleDateString('en-US', { weekday: 'long' });

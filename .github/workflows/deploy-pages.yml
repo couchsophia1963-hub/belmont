@@ -1,0 +1,102 @@
+name: Deploy to GitHub Pages
+
+# Publishes this app to https://couchsophia1963-hub.github.io/belmont/ .
+#
+# It does NOT replace the live site at https://belmont-news.bolt.host/ . Merging
+# this workflow publishes a second, parallel copy. Cutting the live host over to
+# GitHub Pages is a separate, explicit step, and it is not taken here.
+#
+# The two deploys differ in one build setting and nothing else:
+# `BASE_PATH=/belmont/` below, because a Pages project site is served from
+# `/<repo>/` rather than the domain root. See `vite.config.ts`.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push wins.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `--include=dev` is not redundant. When `NODE_ENV=production` is present
+      # in the environment, npm silently omits devDependencies, and `vite
+      # build` then fails with `ERR_MODULE_NOT_FOUND: Cannot find package
+      # 'vite'`. That has already happened once on a runner with NODE_ENV set,
+      # and it looks like a broken repo rather than a skipped install.
+      - name: Install
+        run: npm ci --include=dev
+        env:
+          NODE_ENV: development
+
+      # Refuse to publish a site whose Supabase client has no URL, no key, the
+      # wrong role, an expired key, or a key issued for a different project.
+      #
+      # This replaces a bash `for` loop that tested only that the two variables
+      # were non-empty. That caught absence and nothing else, so a mis-paired
+      # key (BEL-82), a `service_role` key, an expired key, and a key the
+      # project had stopped accepting all built successfully and published a
+      # site that served no stories. The build being green was never evidence.
+      #
+      # `prebuild` runs the same shape check, so this step is the early,
+      # readable failure rather than the only one. It is kept explicit because
+      # this workflow is the one that publishes.
+      - name: Require the Supabase build variables
+        run: npm run build-env
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      # The second half of the gate, and the half a shape check cannot make.
+      # The key can be well formed, unexpired, `anon`, and issued for the right
+      # project and still be refused, because the project decided to stop
+      # accepting it. Only a real read tells that apart from a working key, and
+      # a real read is what a reader experiences.
+      #
+      # Runs before the build so a dead key costs seconds rather than a full
+      # bundle, and so the failure names the key rather than a Vite stack trace.
+      - name: Confirm the key still reads
+        run: npm run build-env:probe
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Build
+        run: npm run build
+        env:
+          BASE_PATH: /belmont/
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

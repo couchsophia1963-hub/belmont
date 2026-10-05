@@ -17,15 +17,30 @@ import {
   Loader2,
   Users,
   Shield,
-  PenTool,
   User as UserIcon,
   FileText,
   Cloud,
-  Eye,
   EyeOff,
   RefreshCw,
   ArrowRight,
 } from 'lucide-react';
+
+// API key material. The alphabet and the body length together give
+// log2(36^40) = 206.8 bits, which is more than a bearer token needs and far more
+// than anyone can search. That figure is only true of the source of those bits,
+// which is why generateApiKey draws from `crypto` and not from `Math.random()`.
+const KEY_PREFIX = 'bcn_';
+const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const KEY_BODY_LENGTH = 40;
+
+// The largest whole multiple of the alphabet size that fits in one byte:
+// 36 * 7 = 252. A byte carries 256 values, so `byte % KEY_ALPHABET.length` would
+// map values 0-3 onto the first four letters of the alphabet 8 times each and
+// every other character 7 times each, which makes `a` through `d` about 14% more
+// likely than `8` or `9`. Bytes at or above this ceiling are drawn again rather
+// than folded in, so every character stays equally likely and the entropy figure
+// above holds exactly rather than approximately.
+const KEY_BYTE_CEILING = Math.floor(256 / KEY_ALPHABET.length) * KEY_ALPHABET.length;
 
 export function DashboardPage() {
   const { session, profile, loading, refreshProfile } = useAuth();
@@ -149,7 +164,18 @@ function WriterDashboard({ userId }: { userId: string }) {
   const loadApiKeys = useCallback(async () => {
     const { data, error } = await supabase
       .from('api_keys')
-      .select('*')
+      // Named columns, never `*`. `api_keys.key_hash` holds the raw credential -- the name says
+      // hash and it is not one -- so `select('*')` pulls every key this user owns into the page on
+      // every dashboard load, in full, over PostgREST. The owner-scoped RLS policy on this table is
+      // the only thing between that and a working writer credential, and a browser tab is a far
+      // easier thing to read than a database role.
+      //
+      // Nothing below renders `key_hash`; the fields are `id`, `name`, `last_used_at` and
+      // `key_prefix`. `user_id` is selected because the `ApiKey` type carries it, and `created_at`
+      // because the sort orders on it. Naming the columns also means this call keeps working, and
+      // keeps returning nothing secret, after `key_hash` is dropped and `key_digest` takes its
+      // place.
+      .select('id, user_id, key_prefix, name, last_used_at, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
     if (!error) setApiKeys((data ?? []) as ApiKey[]);
@@ -171,13 +197,41 @@ function WriterDashboard({ userId }: { userId: string }) {
     loadStories();
   }, [loadApiKeys, loadStories]);
 
+  // Generate a bearer key from the platform CSPRNG.
+  //
+  // This used to build the key from `Math.random()`, which is not a CSPRNG. V8 runs xorshift128+,
+  // which is seeded from the operating system (`RandomNumberGenerator` reads /dev/urandom on Linux
+  // and arc4random_buf on Darwin) but holds only 128 bits of state, and V8 says so itself: "even
+  // though xorshift128+ is a huge improvement over MWC1616, it is still not cryptographically
+  // secure." The state is recoverable from a handful of observed draws, so a key assembled from it is
+  // an obfuscated one rather than a secret. That is a defect in the credential itself, so it cannot
+  // be repaired later by storing the key differently; the material has to come from the right
+  // generator on the way in.
+  //
+  // Note the seeding is not the reason. An earlier version of this comment claimed V8 does not seed
+  // Math.random() from the OS at all. That is not true of current V8 and the next reader who
+  // checks it will find it false. The state size is the argument, and it is V8's own.
+  //
+  // `crypto.getRandomValues` is available in every browser this panel runs in, is the source the
+  // Web Crypto specification exists for, and adds no dependency. It is available in insecure
+  // contexts too, so plain-HTTP hosting is not a constraint either.
+  //
+  // Rotation (`handleRerollKey`) calls this same function, so rotating now yields properly random
+  // material where it previously re-rolled a weak key.
+  //
+  // Does this rotate anything? No. It changes how a key is generated, not what is stored, so no
+  // stored credential is invalidated and no caller has to be given a replacement. Storage is the
+  // separate, sequenced change recorded on BEL-273.
   const generateApiKey = (): string => {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    let key = 'bcn_';
-    for (let i = 0; i < 40; i++) {
-      key += chars[Math.floor(Math.random() * chars.length)];
+    let body = '';
+    while (body.length < KEY_BODY_LENGTH) {
+      for (const byte of crypto.getRandomValues(new Uint8Array(KEY_BODY_LENGTH))) {
+        if (byte >= KEY_BYTE_CEILING) continue;
+        body += KEY_ALPHABET[byte % KEY_ALPHABET.length];
+        if (body.length === KEY_BODY_LENGTH) break;
+      }
     }
-    return key;
+    return KEY_PREFIX + body;
   };
 
   const handleCreateKey = async (e: React.FormEvent) => {
@@ -356,18 +410,26 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -d '{"resource":"stories","action":"create",
        "data":{"title":"...","body":"...","category":"..."}}'
 
-# Update a story
+# Update a story (any writer key; a correction is never blocked by lock, so
+# a frozen story stays fixable -- but "published": false on a locked story
+# that is still live is refused with 409)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"stories","action":"update","id":"UUID",
        "data":{"title":"new title","published":true}}'
 
-# Delete a story (admin only, not locked)
+# Delete a story (admin only; a locked story is refused with 409)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"stories","action":"delete","id":"UUID"}'
+
+# Unlock a story (admin only) -- unlock first, then delete succeeds
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"stories","action":"unlock","id":"UUID"}'
 
 # Lock a story (admin only)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
@@ -375,24 +437,40 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"stories","action":"lock","id":"UUID"}'
 
-# Publish / unpublish
+# Unpublish a story (any writer key; a locked story is refused with 409)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"stories","action":"unpublish","id":"UUID"}'
 
-# Update weather
+# Publish a story (any writer key; the lock does not refuse this one)
+curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"resource":"stories","action":"publish","id":"UUID"}'
+
+# Update weather (any writer key)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"weather","action":"upsert",
        "data":{"forecast_date":"2026-10-05","high_temp":70,...}}'
 
-# Delete a weather forecast
+# Delete a weather forecast (admin only; a writer key is refused with 403)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"resource":"weather","action":"delete","id":"UUID"}'`}</pre>
+            <p className="font-sans text-xs leading-relaxed text-stone-400 mt-3">
+              These calls are authorised by the function, not by the database. It runs with the
+              service-role key, so the{" "}
+              <span className="font-mono text-stone-300">stories_admin_delete</span> and{" "}
+              <span className="font-mono text-stone-300">weather_admin_delete</span> row-level
+              security policies do not apply to them. The role and lock checks listed above are the
+              whole control. The dashboard&apos;s own edits do not come through here; they go
+              straight to PostgREST with your session, where RLS is the control instead — and that
+              path has a gap, tracked as BEL-122.
+            </p>
           </div>
         </div>
       </section>

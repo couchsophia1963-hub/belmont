@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { WeatherForecast } from '@/components/WeatherForecast';
+import { todayIsoDate } from '@/lib/forecastDay';
 import { HeadlineStory, StoryCard } from '@/components/StoryCard';
+import {
+  SHELTER_BIDS_ACCURATE_STORY_URL,
+  SHELTER_BIDS_AUTHOR,
+} from '@/lib/shelterCorrection';
 import type { Story, WeatherForecast as WeatherType } from '@/types';
 import { Loader2, TrendingUp } from 'lucide-react';
 
@@ -24,6 +29,14 @@ export function HomePage() {
         supabase
           .from('weather_forecasts')
           .select('*')
+          // Drop rows already past. The strip shows the next few days from today,
+          // so a stale row left at the head of the table would otherwise consume
+          // the leading slot and push a real forecast day out of the window --
+          // which is what published yesterday's highs under today's name (BEL-29).
+          // This is a filter on an existing `date` column: no migration, no new
+          // column, no grant change. Filtering stale rows out of the read does
+          // not delete them; the admin page still lists every row.
+          .gte('forecast_date', todayIsoDate())
           .order('forecast_date', { ascending: true })
           .limit(7),
         supabase
@@ -82,6 +95,24 @@ export function HomePage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <aside
+        role="note"
+        className="mb-6 rounded-xl border border-stone-300 dark:border-stone-700 border-l-4 border-l-error-600 bg-stone-50 dark:bg-stone-900 px-4 py-3"
+      >
+        <p className="font-sans text-sm leading-relaxed text-stone-700 dark:text-stone-300">
+          Correction: the animal shelter bids item on this page is not Belmont News reporting and is
+          superseded. The accurate story, by {SHELTER_BIDS_AUTHOR}:{' '}
+          <a
+            href={SHELTER_BIDS_ACCURATE_STORY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline break-words hover:text-primary-700 dark:hover:text-primary-400"
+          >
+            {SHELTER_BIDS_ACCURATE_STORY_URL}
+          </a>
+        </p>
+      </aside>
+
       <WeatherForecast forecasts={displayWeather} totalDays={visibleDays} />
 
       {mainHeadline && <HeadlineStory story={mainHeadline} />}
