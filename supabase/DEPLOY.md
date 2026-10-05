@@ -461,21 +461,42 @@ the moment to care.
 This is the rule-3 check and it is the one that has never been run, because
 there has never been a SQL route.
 
-Read the grants before applying any migration that adds a column:
+Read the grants before applying any migration that adds a column. **Count columns,
+not rows** — this section used to branch on whether
+`information_schema.column_privileges` returned any rows at all, which is the one
+check that cannot work:
 
 ```sql
-select grantee, privilege_type, count(*)
-  from information_schema.column_privileges
- where table_schema = 'public' and table_name = 'weather_forecasts'
- group by 1, 2 order by 1, 2;
+select t.name,
+       (select count(*) from information_schema.columns c
+         where c.table_schema = 'public' and c.table_name = t.name)              as total_columns,
+       (select count(distinct p.column_name) from information_schema.column_privileges p
+         where p.table_schema = 'public' and p.table_name = t.name
+           and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')      as updatable_columns
+  from (values ('profiles'), ('stories'), ('weather_forecasts')) as t(name);
 ```
 
-- **No rows for `authenticated`** — its grants are table-level, which is the
-  Supabase default, and they already cover the six columns file 4 adds. Do
-  nothing.
-- **Rows for `authenticated`** — its grants are column-scoped. Extend them in the
-  same change as the migration, not as a follow-up. Grant `SELECT` as well as the
-  writes.
+- **`updatable_columns = total_columns`** — table-level, which is the Supabase
+  default, and it already covers the six columns file 4 adds. Do nothing.
+- **`updatable_columns` lower than `total_columns`** — `authenticated` does not
+  hold UPDATE across the whole table. Extend the grants in the same change as the
+  migration, not as a follow-up. Grant `SELECT` as well as the writes.
+
+Why the old row-count version was wrong, and this is the part worth remembering:
+a table-level `GRANT UPDATE ON t TO r` is reported in
+`information_schema.column_privileges` too, expanded to one row per column, and
+the table owner appears with their implicit privileges whether or not anything was
+ever granted. So "no rows" was never a reachable answer on a real Supabase
+project, and "rows" was not evidence of a narrow grant. The failure is symmetric:
+it raises a false STOP on a project whose grants are wide open — which Belmont
+News is — and read the other way it tells an operator the grants *are* narrow when
+nobody checked, which is the outcome this whole hazard exists to prevent. The
+comparison works either way; the row count does not.
+
+Corrected on BEL-329. `20261005190000_profiles_role_not_self_assignable.sql`
+section 4 carries the same correction and its full reasoning, learned against a
+real PostgreSQL 18; every migration header in the BEL-48 apply now points at one
+check.
 
 `20261005140000` has its grant statements commented out on purpose, because
 which privileges a role needs is a person's call made after reading that check.

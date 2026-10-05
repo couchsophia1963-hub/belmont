@@ -185,21 +185,37 @@ commit;
 -- rather than table-level it can read the new columns and not write them, and
 -- every admin weather save fails. Run this after the transaction above:
 --
---   select grantee, privilege_type, count(*)
---     from information_schema.column_privileges
---    where table_schema = 'public' and table_name = 'weather_forecasts'
---    group by 1, 2 order by 1, 2;
+--   select t.name,
+--          (select count(*) from information_schema.columns c
+--            where c.table_schema = 'public' and c.table_name = t.name)              as total_columns,
+--          (select count(distinct p.column_name) from information_schema.column_privileges p
+--            where p.table_schema = 'public' and p.table_name = t.name
+--              and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')      as updatable_columns
+--     from (values ('profiles'), ('stories'), ('weather_forecasts')) as t(name);
 --
--- NO ROWS for `authenticated`  -> its grants are table-level (the Supabase
---   default) and already cover the six new columns. Stop here. Nothing to do.
+-- updatable_columns = total_columns on every row  -> table-level (the Supabase
+--   default) and already covering the six new columns. Stop here. Nothing to do.
 --
--- ROWS for `authenticated`      -> column-scoped. Extend in this same change,
---   not as a follow-up. Grant SELECT as well as the writes, or the admin panel
---   half-works in a way that looks fine:
+-- updatable_columns < total_columns               -> `authenticated` does not hold
+--   UPDATE across the whole table. Extend in this same change, not as a follow-up.
+--   Grant SELECT as well as the writes, or the admin panel half-works in a way that
+--   looks fine:
 --
 --   -- grant select on public.weather_forecasts to authenticated, service_role;
 --   -- grant insert, update, delete on public.weather_forecasts
 --   --   to authenticated, service_role;
+--
+-- Do NOT read a populated `column_privileges` as column scoping on its own. A
+-- table-level `GRANT` is reported there too, expanded to one row per column, and
+-- the table owner appears with its implicit privileges whether or not anything was
+-- ever granted. This block used to do exactly that -- ask whether the view returns
+-- rows at all and read NO ROWS as table-level -- which is the defect BEL-329
+-- records. It is a false STOP on a project whose grants are wide open, which is
+-- Belmont News, and read the other way it is false reassurance. Count the columns
+-- instead, and repeat the comparison with `privilege_type = 'SELECT'` to answer the
+-- read-back half. The check and its rationale are
+-- `20261005190000_profiles_role_not_self_assignable.sql` section 4, which is in the
+-- same BEL-48 apply and already said so.
 --
 -- Why `select` is not optional here. PostgREST expands `select=*` to only the
 -- columns the calling role may SELECT, and the admin panel loads the table with
@@ -211,9 +227,8 @@ commit;
 --
 -- Left commented on purpose. Which privileges that role actually needs is a
 -- person's call made after reading the check, not a migration's, and the
--- migration is written to run unattended. Note that column_privileges reports
--- column-level grants only: a row here is positive proof of column scoping, and
--- the absence of a SELECT row is what makes the read-back above break.
+-- migration is written to run unattended. What is NOT left to a person is the
+-- check itself: count columns, never count rows.
 --
 -- `weather_public_read` is `TO anon, authenticated USING (true)`, and the
 -- homepage strip reads these columns as anon. So whatever the answer to the

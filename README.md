@@ -118,17 +118,32 @@ from its schema cache. A frontend-first deploy breaks admin saves silently while
 the homepage keeps rendering fine, so it looks healthy right up until an editor
 touches the weather panel.
 
-Before any migration, read the grants:
+Before any migration, read the grants by **counting columns**, not by counting rows:
 
 ```sql
-select column_name, grantee
-from information_schema.column_privileges
-where table_name = '<table>';
+select t.name,
+       (select count(*) from information_schema.columns c
+         where c.table_schema = 'public' and c.table_name = t.name)              as total_columns,
+       (select count(distinct p.column_name) from information_schema.column_privileges p
+         where p.table_schema = 'public' and p.table_name = t.name
+           and p.grantee = 'authenticated' and p.privilege_type = 'UPDATE')      as updatable_columns
+  from (values ('profiles'), ('stories'), ('weather_forecasts')) as t(name);
 ```
 
-If that returns rows, grants are column-scoped and a new column needs the grant
-extending, or every write fails after the migration lands. Do not widen a grant
-to `anon` on an assumption — read it, then decide.
+Expected: `updatable_columns = total_columns` on every row, which is the Supabase
+table-level default. Fewer means `authenticated` does not hold UPDATE across the
+whole table — a column-scoped grant that may not cover the new column, or no
+UPDATE at all — and a new column then needs the grant extending or every write
+fails after the migration lands. Do not widen a grant to `anon` on an assumption
+— read it, then decide.
+
+This query was previously written as "does `information_schema.column_privileges`
+return any rows?" with "rows mean column-scoped". That is wrong: a table-level
+`GRANT` is reported in that view too, one row per column, and the table owner
+appears with its implicit privileges either way, so the check reads as a false
+alarm on a project whose grants are wide open — or, read the other way, as false
+reassurance. Corrected on BEL-329; `20261005190000_profiles_role_not_self_assignable.sql`
+section 4 has the full reasoning.
 
 The per-migration replay audit is in `supabase/DEPLOY.md` (PR #21). It is
 required reading before the first `db push`.
