@@ -11,7 +11,16 @@ import { cleanup } from '@testing-library/react';
 // `localStorage` goes with it. `ThemeProvider` writes the reader's theme choice
 // there on mount, and jsdom keeps one store for the whole file, so a test that
 // set a theme would hand the next test a different initial render.
+//
+// `typeof window` is checked because this file is the setup for every test
+// file, and not all of them have a DOM. The build-env gate's tests (BEL-308)
+// run under `@vitest-environment node`: they exercise a Node CLI, so paying
+// for jsdom and then touching `window` there throws before a single assertion
+// runs. Everything DOM-specific below is skipped where there is no DOM.
+const hasDom = typeof window !== 'undefined';
+
 afterEach(() => {
+  if (!hasDom) return;
   cleanup();
   window.localStorage.clear();
 });
@@ -26,7 +35,7 @@ afterEach(() => {
 // render the real component tree, and a mocked provider would quietly stop covering
 // whatever it does. The stub answers `false` for any query, so the theme is always
 // `light` and a test never depends on a reader's system preference.
-if (!window.matchMedia) {
+if (hasDom && !window.matchMedia) {
   window.matchMedia = ((query: string) => ({
     matches: false,
     media: query,

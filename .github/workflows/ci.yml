@@ -85,13 +85,53 @@ jobs:
       - name: Test
         run: npm test
 
+      # BEL-308. This proves the build-env gate itself, with no credential and
+      # no outbound call, on every push and every PR.
+      #
+      # It runs against the two cases the gate exists for, and both are cases
+      # `vite build` accepts today: variables that are absent, and a key issued
+      # for the wrong project. Each is asserted to FAIL the gate. A gate that
+      # has never been seen to fail is a gate whose value is unknown, which is
+      # how the presence-only bash loop it replaces survived.
+      - name: The build-env gate rejects what a green build accepts
+        run: |
+          set -e
+          fail_if_passed() {
+            if node scripts/build-env.mjs; then
+              echo "::error::the build-env gate passed a build it must reject: $1"
+              exit 1
+            fi
+            echo "  correctly rejected: $1"
+          }
+          fail_if_passed "absent Supabase variables"
+          fail_if_passed "a key issued for another project (BEL-82)"
+
+      # The same gate, against the values CI builds with. These are deliberate
+      # placeholders, so this step is expected to FAIL and is not a gate on
+      # this PR: it exists to show in the log that the placeholders would not
+      # reach a real deploy. `continue-on-error` is what keeps it from doing so.
+      #
+      # Once the secrets are in place this step becomes a real gate and the
+      # `continue-on-error` below is deleted in the same change that sets them.
+      - name: The gate would refuse the placeholder build values
+        continue-on-error: true
+        run: npm run build-env
+        env:
+          VITE_SUPABASE_URL: https://placeholder.invalid
+          VITE_SUPABASE_ANON_KEY: placeholder-not-a-real-key
+
       # The app reads VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY at module load.
       # They are placeholders, never real credentials: the anon key is a public
       # value by design, but nothing from the secret store is placed in a workflow
       # file. `npm run build` does not need a reachable project, and the test
       # suite does not read them.
+      #
+      # `prebuild` runs `build-env` first, which would reject these placeholders
+      # and fail this step for the wrong reason. The build itself is what CI is
+      # checking here -- that the bundle compiles -- so it runs `vite build`
+      # directly and the gate is asserted separately above.
       - name: Build
+        run: npx vite build
         env:
           VITE_SUPABASE_URL: https://placeholder.invalid
           VITE_SUPABASE_ANON_KEY: placeholder-not-a-real-key
-        run: npm run build

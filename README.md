@@ -34,6 +34,64 @@ The JS bundle hash will not match a local build, and that is expected:
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are inlined at build time, so a
 build without them differs.
 
+### Who rebuilds the live host: nobody in this repo (BEL-308)
+
+**The trigger that rebuilds `belmont-news.bolt.host` is out of band. There is no
+workflow, hook, or schedule in this repository that builds or deploys it, and
+there is no `netlify.toml`.** Bolt builds it from its own environment when
+someone uses Bolt's own deploy path.
+
+Checked on 2026-10-05 against the repository, not inferred:
+
+| where a build variable could come from | state |
+| --- | --- |
+| a workflow that deploys the Bolt host | does not exist |
+| `netlify.toml` | does not exist |
+| Actions secrets on this repo | none set (empty list) |
+| Actions variables on this repo | none set (empty list) |
+| GitHub environments | none |
+| a tracked `.env` | none; `.env.example` holds names only |
+
+So the two variables that every read of the live app depends on are supplied by
+whatever builds it inside Bolt, and this repository neither holds nor validates
+them. Two consequences, and they are the reason a reader-facing fix on this
+surface cannot be given a delivery date:
+
+1. **A rebuild cannot be requested, scheduled, or predicted from here.** It is a
+   coincidence. Do not promise one.
+2. **Nothing in this repo would notice a bad pair before it shipped.** A build
+   with those two variables absent, wrong, mis-paired, expired, or carrying a
+   `service_role` key all succeed, and the shell still renders. A green build was
+   never evidence of a working build.
+
+`npm run build-env` now refuses the second case. See below.
+
+### The build-env gate (BEL-308)
+
+```bash
+npm run build-env          # shape and provenance, no network
+npm run build-env:probe    # additionally read from the project with the key
+```
+
+`npm run build` runs the first automatically via `prebuild`, so a build that
+cannot work does not produce a `dist/`.
+
+It rejects what `vite build` accepts: absent variables, a non-JWT, a
+`service_role` key, an expired key, and a key issued for a project other than
+the one `VITE_SUPABASE_URL` names (the BEL-82 mis-pairing). `--probe` additionally
+requires a `200` on `stories` and `weather_forecasts`, which is the only thing
+that distinguishes a revoked key from a working one — a key can be well formed,
+unexpired, `anon`, and issued for the right project and still be refused.
+
+Both modes report a key by `sha256[:12]` fingerprint, project ref, role, and
+expiry. No mode ever prints a key value, so gate output is safe to paste into a
+ticket.
+
+Until Actions secrets exist on this repo, the Pages deploy fails at this gate.
+That is the correct outcome and it is earlier and more specific than the build
+failing: it names the missing variables instead of shipping a site that cannot
+read.
+
 ### Two repos claim the live host
 
 `EasySchedule/belmont-news` states in its README that it is "published hourly
@@ -65,24 +123,28 @@ to `anon` on an assumption — read it, then decide.
 The per-migration replay audit is in `supabase/DEPLOY.md` (PR #21). It is
 required reading before the first `db push`.
 
-## GitHub Pages is not enabled on this repo
+## GitHub Pages is prepared but not switched on
 
-`has_pages` is `false` and there is no `.github/workflows/`. Standing it up is
-not a config toggle — `BrowserRouter` (BEL-92) means the host must serve
-`index.html` for unknown paths, and three things are missing today:
+`has_pages` is `false` as of 2026-10-05 — the Pages API returns 404 — but all
+three prerequisites BEL-204 identified are now in the repository, and enabling
+Pages is the only thing left:
 
-1. **`base` in `vite.config.ts`.** Assets are emitted as `/assets/...`. A Pages
-   project site is served from `/<repo>/`, so every asset 404s. Needs
-   `base: '/belmont/'` (or `/` with a custom domain).
-2. **`public/404.html`.** GitHub Pages serves its own 404 for unknown paths and
-   does not fall back to `index.html`, so `/story/<slug>` deep links break. A
-   404 redirect shim is required.
-3. **A deploy workflow**, plus `VITE_SUPABASE_URL` and
-   `VITE_SUPABASE_ANON_KEY` in the build environment.
+1. **`base` in `vite.config.ts`** — done. It reads `BASE_PATH`, defaults to `/`
+   for the Bolt host, and the Pages workflow sets `/belmont/`.
+2. **`public/404.html`** — done. It remembers the requested path and hands it to
+   the router via `src/main.tsx`, so `/story/<slug>` reaches the story on Pages
+   the way it already does on the Bolt host.
+3. **A deploy workflow and the build variables** — the workflow exists; the
+   variables do not. This repository has no Actions secrets set, so
+   `deploy-pages.yml` halts at the build-env gate rather than publishing a site
+   that cannot read.
+
+Enabling Pages is a separate, explicit step, and merging the workflow does not do
+it. Do not enable it until the secrets exist, or the first deploy is the failure
+this gate was added to prevent.
 
 `src/lib/storyUrl.ts` already derives its base from the runtime pathname via
-`siteBasePath()`, so the app code is ready for a subdirectory deploy. The asset
-`base` and the 404 fallback are what are missing.
+`siteBasePath()`, so the app code is ready for a subdirectory deploy.
 
 The anon key is publishable by design — it is the RLS-facing key and RLS is
 what protects the data. It still belongs in the secret store or GitHub Actions
