@@ -12,6 +12,16 @@
     --color-primary-600: #1e6fd4;
     --color-primary-700: #1859b0;
     --color-primary-900: #123a73;
+
+    /* One author-supplied focus ring for the whole site (BEL-95). Before this
+       every tab stop fell back to the UA ring, which varies by browser and
+       platform. 2px of primary-600 measures 4.9:1 on white and 4.7:1 on the
+       stone-50 page, over the 3:1 floor WCAG 1.4.11 sets for non-text
+       contrast. Change the ring here and it changes everywhere. */
+    --focus-ring-width: 2px;
+    --focus-ring-style: solid;
+    --focus-ring-color: #1e6fd4;
+    --focus-ring-offset: 2px;
   }
 
   html {
@@ -27,9 +37,35 @@
   h1, h2, h3, h4, h5 {
     font-family: 'Playfair Display', Georgia, serif;
   }
+
+  /* The site-wide focus ring (BEL-95). `:where()` holds this at zero
+     specificity, so the form inputs that already ship their own treatment
+     (Tailwind `focus:ring-*` plus `focus:outline-none`) keep it, and every
+     other tab stop gets the token. `outline` rather than `box-shadow` so the
+     ring survives Windows High Contrast, where box-shadow is dropped. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: var(--focus-ring-width) var(--focus-ring-style) var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
 }
 
 @layer components {
+  /* Skip link (BEL-95). It stays in the DOM and in the tab order at all
+     times -- only its position moves -- so assistive tech can still find it
+     and it is the first thing a keyboard user reaches. `translateY(-150%)`
+     parks it above the viewport without `display: none`, which would remove
+     it from both. */
+  .skip-link {
+    @apply absolute left-4 z-[100] px-4 py-2 rounded-lg font-sans text-sm font-bold text-white bg-primary-700 shadow-lg;
+    top: 0;
+    transform: translateY(-150%);
+    transition: transform 0.15s ease-out;
+  }
+
+  .skip-link:focus {
+    transform: translateY(0.5rem);
+  }
+
   .prose-news p {
     @apply text-stone-700 leading-relaxed mb-5 text-lg;
   }

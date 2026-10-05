@@ -22,16 +22,20 @@ export function Header() {
               <Newspaper className="w-6 h-6 text-white" />
             </div>
             <div className="hidden sm:block">
-              <h1 className="font-serif text-xl font-black text-stone-900 leading-none">
+              {/* The site name in the banner is the brand, not this page's
+                  heading. As an <h1> it duplicated the page heading and gave
+                  a screen reader two level-one stops per page (BEL-95). Same
+                  classes, so it still looks identical. */}
+              <p className="font-serif text-xl font-black text-stone-900 leading-none">
                 Belmont County News
-              </h1>
+              </p>
               <p className="font-sans text-xs text-stone-500 leading-none mt-0.5">
                 Belmont, Ohio 43718
               </p>
             </div>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-1">
+          <nav aria-label="Primary" className="hidden md:flex items-center gap-1">
             <NavLink to="/">Home</NavLink>
             {session && <NavLink to="/dashboard">Dashboard</NavLink>}
             {session && profile && (profile.role === 'writer' || profile.role === 'admin') && (
@@ -73,9 +77,14 @@ export function Header() {
             )}
           </nav>
 
+          {/* Icon-only, so it needs a name of its own; without one a screen
+              reader announces an unlabelled button (BEL-95). */}
           <button
             className="md:hidden p-2 rounded-lg text-stone-600 hover:bg-stone-100"
             onClick={() => setMenuOpen(!menuOpen)}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-menu"
           >
             {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -83,7 +92,11 @@ export function Header() {
       </div>
 
       {menuOpen && (
-        <div className="md:hidden border-t border-stone-200 bg-white">
+        <nav
+          id="mobile-menu"
+          aria-label="Mobile"
+          className="md:hidden border-t border-stone-200 bg-white"
+        >
           <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-2">
             <Link
               to="/"
@@ -146,13 +159,15 @@ export function Header() {
                     handleSignOut();
                   }}
                   className="p-2 rounded-lg text-stone-500 hover:bg-stone-100"
+                  aria-label="Sign Out"
+                  title="Sign Out"
                 >
                   <LogOut className="w-5 h-5" />
                 </button>
               </div>
             )}
           </div>
-        </div>
+        </nav>
       )}
     </header>
   );
