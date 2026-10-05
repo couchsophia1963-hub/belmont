@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { writeOutcome, writeFailureMessage } from '@/lib/writeOutcome';
 import type { Story } from '@/types';
 import {
   Plus,
@@ -166,27 +167,42 @@ function StoryList({
       return;
     }
 
-    const { error } = await supabase.from('stories').delete().eq('id', id);
+    // `.select('id')` is what makes the result observable: it turns this into
+    // DELETE ... RETURNING. A row filtered out by a policy's USING clause is
+    // suppressed silently -- no error, and 204 No Content without this -- so
+    // `error` cannot distinguish a refused delete from a real one. An empty
+    // array is the proof that nothing was removed, whatever status came back.
+    const { data: deleted, error } = await supabase
+      .from('stories')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
     setActing(false);
     setActionTarget(null);
-    if (error) {
-      if (error.message.includes('row-level security')) {
-        setActionError('Delete blocked by security policy. The story may be locked.');
-      } else {
-        setActionError('Failed to delete story: ' + error.message);
-      }
+
+    const outcome = writeOutcome(deleted, error);
+    if (!outcome.ok) {
+      setActionError(writeFailureMessage(outcome, 'story'));
       return;
     }
     await loadStories();
   };
 
   const togglePublished = async (story: Story) => {
-    const { error } = await supabase
+    // An RLS-filtered UPDATE is suppressed the same way a filtered DELETE is, so
+    // this needs the same RETURNING check. Without it, unpublishing a story the
+    // policy will not let this role unpublish reloads the row unchanged and the
+    // panel has already implied it worked.
+    const { data, error } = await supabase
       .from('stories')
       .update({ published: !story.published })
-      .eq('id', story.id);
-    if (error) {
-      alert('Failed to update: ' + error.message);
+      .eq('id', story.id)
+      .select('id');
+
+    const outcome = writeOutcome(data, error);
+    if (!outcome.ok) {
+      setActionError(writeFailureMessage(outcome, 'published state'));
       return;
     }
     await loadStories();
@@ -194,29 +210,48 @@ function StoryList({
 
   const toggleHeadline = async (story: Story) => {
     if (!story.is_headline) {
-      await supabase
+      // Only one story is the headline, so this deliberately clears every other
+      // row. Its error is reported rather than dropped, and an empty result is
+      // NOT treated as a failure: "no other story was the headline" is a
+      // legitimate zero-row outcome here, unlike the single-row writes below.
+      const { error: clearError } = await supabase
         .from('stories')
         .update({ is_headline: false })
-        .neq('id', story.id);
+        .neq('id', story.id)
+        .select('id');
+      if (clearError) {
+        setActionError('Failed to clear the previous headline: ' + clearError.message);
+        return;
+      }
     }
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('stories')
       .update({ is_headline: !story.is_headline })
-      .eq('id', story.id);
-    if (error) {
-      alert('Failed to update: ' + error.message);
+      .eq('id', story.id)
+      .select('id');
+
+    const outcome = writeOutcome(data, error);
+    if (!outcome.ok) {
+      setActionError(writeFailureMessage(outcome, 'headline'));
       return;
     }
     await loadStories();
   };
 
   const toggleLock = async (story: Story) => {
-    const { error } = await supabase
+    // A writer satisfies stories_writer_update for every row and every column,
+    // including `locked` -- Postgres RLS is row-level, not column-level. So this
+    // call is reachable by a writer who should not be locking stories at all
+    // (BEL-213). The check below reports the refusal; it does not prevent it.
+    const { data, error } = await supabase
       .from('stories')
       .update({ locked: !story.locked })
-      .eq('id', story.id);
-    if (error) {
-      alert('Failed to toggle lock: ' + error.message);
+      .eq('id', story.id)
+      .select('id');
+
+    const outcome = writeOutcome(data, error);
+    if (!outcome.ok) {
+      setActionError(writeFailureMessage(outcome, 'lock state'));
       return;
     }
     await loadStories();
@@ -480,16 +515,26 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
     };
 
     if (story) {
-      const { error: updateError } = await supabase
+      // UPDATE suppresses a filtered row exactly as DELETE does, so the check is
+      // the same: ask for the row back, and refuse to report a save that
+      // returned nothing. This is the path an editor uses for every story edit,
+      // and a locked or unpublished story can be refused here.
+      const { data: updated, error: updateError } = await supabase
         .from('stories')
         .update(payload)
-        .eq('id', story.id);
-      if (updateError) {
-        setError(updateError.message);
+        .eq('id', story.id)
+        .select('id');
+
+      const outcome = writeOutcome(updated, updateError);
+      if (!outcome.ok) {
+        setError(writeFailureMessage(outcome, 'story'));
         setSaving(false);
         return;
       }
     } else {
+      // INSERT is not routed through writeOutcome: a row that fails the INSERT
+      // policy's WITH CHECK raises an error instead of being suppressed, so
+      // `error` is already the whole story on this path.
       const { error: insertError } = await supabase
         .from('stories')
         .insert({ ...payload, author_id: authorId });
@@ -501,10 +546,20 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
     }
 
     if (isHeadline && !story?.is_headline) {
-      await supabase
+      // Clearing the previous headline is a multi-row write, so zero rows is a
+      // legitimate result and not a refusal. Its error is still reported: this
+      // used to be fire-and-forget, so a failure left two headline stories with
+      // the save button reading "Saved!".
+      const { error: headlineError } = await supabase
         .from('stories')
         .update({ is_headline: false })
-        .neq('slug', finalSlug);
+        .neq('slug', finalSlug)
+        .select('id');
+      if (headlineError) {
+        setError('Story saved, but the previous headline was not cleared: ' + headlineError.message);
+        setSaving(false);
+        return;
+      }
     }
 
     setSaving(false);

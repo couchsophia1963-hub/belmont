@@ -45,7 +45,18 @@ async function authenticate(authHeader: string | null) {
 
   if (!keyRow) return null;
 
-  // Update last_used_at
+  // Update last_used_at.
+  //
+  // This write is silently suppressed and always has been: there is no UPDATE
+  // policy on api_keys in supabase/migrations, only owner_read, owner_insert and
+  // owner_delete. Postgres filters every row out, PostgREST returns 204, and
+  // this statement has no way to tell. The consequence is visible in the
+  // dashboard, where "Last used" never appears on any key.
+  //
+  // No `.select()` check is added here on purpose: this is fire-and-forget with
+  // no operator to mislead, and the fix is a migration adding the policy, not a
+  // client check. Adding RETURNING here would only tell us what section 4 of
+  // BEL-234's audit already establishes from the policy files.
   await supabase
     .from("api_keys")
     .update({ last_used_at: new Date().toISOString() })
@@ -189,8 +200,29 @@ Deno.serve(async (req: Request) => {
         if (storyRow.locked) {
           return errorResponse("Story is locked and cannot be deleted. Unlock it first.", 409);
         }
-        const { error } = await supabase.from("stories").delete().eq("id", id);
+        // `.select("id")` makes this DELETE ... RETURNING. A row filtered by
+        // stories_admin_delete's USING clause is suppressed silently -- no error,
+        // and 204 without this -- so the `error` check below alone cannot tell a
+        // refused delete from a real one and would answer `{ success: true }`
+        // with the story still live. The `locked` pre-check above narrows that
+        // window; it does not close it, since another admin can lock the story
+        // between the SELECT and the DELETE.
+        //
+        // Not routed through src/lib/writeOutcome.ts: that module is part of the
+        // Vite frontend and this is a Deno edge function, so the two cannot
+        // share an import. The two-line shape is the same.
+        const { data: deleted, error } = await supabase
+          .from("stories")
+          .delete()
+          .eq("id", id)
+          .select("id");
         if (error) return errorResponse(error.message, 500);
+        if (!deleted || deleted.length === 0) {
+          return errorResponse(
+            "Delete was refused by a database policy. The story was not removed.",
+            409,
+          );
+        }
         return jsonResponse({ success: true });
       }
 
@@ -339,8 +371,18 @@ Deno.serve(async (req: Request) => {
         if (profile.role !== "admin") {
           return errorResponse("Only admins can delete weather forecasts", 403);
         }
-        const { error } = await supabase.from("weather_forecasts").delete().eq("id", id);
+        const { data: deleted, error } = await supabase
+          .from("weather_forecasts")
+          .delete()
+          .eq("id", id)
+          .select("id");
         if (error) return errorResponse(error.message, 500);
+        if (!deleted || deleted.length === 0) {
+          return errorResponse(
+            "Delete was refused by a database policy. The forecast was not removed.",
+            409,
+          );
+        }
         return jsonResponse({ success: true });
       }
 

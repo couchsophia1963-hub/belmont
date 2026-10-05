@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { isCommentsViewMissing } from '@/lib/commentsViewMissing';
+import { writeOutcome, writeFailureMessage } from '@/lib/writeOutcome';
 import type { PublicComment } from '@/types';
 import { Send, Trash2, MessageCircle, Loader2 } from 'lucide-react';
 
@@ -89,13 +90,19 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   };
 
   const handleDelete = async (commentId: string) => {
-    const { error: deleteError } = await supabase
+    // Same suppressed-DELETE shape as the story delete. The button only renders
+    // for an id in `deletableIds`, which is itself policy-filtered, so this
+    // should always be permitted -- which is exactly why it needs the check:
+    // the reader who just pressed delete is told nothing when it is not.
+    const { data: deleted, error: deleteError } = await supabase
       .from('comments')
       .delete()
-      .eq('id', commentId);
+      .eq('id', commentId)
+      .select('id');
 
-    if (deleteError) {
-      setError(deleteError.message);
+    const outcome = writeOutcome(deleted, deleteError);
+    if (!outcome.ok) {
+      setError(writeFailureMessage(outcome, 'comment'));
       return;
     }
     await Promise.all([loadComments(), loadDeletableIds()]);
