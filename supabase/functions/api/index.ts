@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { evaluateTakeDown } from "./story-lock.ts";
+import { evaluateDelete, evaluateTakeDown } from "./story-lock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -202,17 +202,24 @@ Deno.serve(async (req: Request) => {
         if (profile.role !== "admin") {
           return errorResponse("Only admins can delete stories", 403);
         }
-        // Check if story is locked before deleting
+        // `published` was missing here (BEL-71). The select fetched only `locked`,
+        // so an admin could delete a live story in one call and nothing recorded
+        // that it had been live. Routed through the shared guard so this action
+        // and `update`/`unpublish` cannot drift apart in what a caller is told.
         const { data: storyRow, error: fetchError } = await supabase
           .from("stories")
-          .select("locked")
+          .select("locked, published")
           .eq("id", id)
           .maybeSingle();
         if (fetchError) return errorResponse(fetchError.message, 500);
         if (!storyRow) return errorResponse("Story not found", 404);
-        if (storyRow.locked) {
-          return errorResponse("Story is locked and cannot be deleted. Unlock it first.", 409);
-        }
+
+        const decision = evaluateDelete({
+          locked: Boolean(storyRow.locked),
+          published: Boolean(storyRow.published),
+        });
+        if (!decision.allowed) return errorResponse(decision.message, decision.status);
+
         const { error } = await supabase.from("stories").delete().eq("id", id);
         if (error) return errorResponse(error.message, 500);
         return jsonResponse({ success: true });
