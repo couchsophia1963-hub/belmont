@@ -207,7 +207,35 @@ The edge function change that honours `revoked_at` is a separate file, sequenced
 Adding the column before anything reads it is the safe order; adding a column nothing reads breaks
 nothing.
 
-## 9. Rerunnable
+## 9. Why this file is numbered `20261005290000`, and what that is a symptom of
+
+Supabase keys `supabase_migrations.schema_migrations` on the **version**, which is the numeric prefix
+of the filename. A file that reuses a version already recorded is **skipped, not refused** -- and if
+two files in the same push share a key, one of them is applied and the other is silently dropped with
+no error anywhere. The migration's changes are then absent from the database while the repository and
+every review of it say they are present.
+
+`20261005200000` was taken by `main`'s `20261005200000_stories_lock_column_guard.sql` while this file
+was in review. This one is now `20261005290000`, chosen far above anything in flight.
+
+**It is not the third time this repository has had to renumber a migration for this reason.** The
+pattern is worth more than this file's fix, and it is tracked once as its own issue rather than
+renumbered PR by PR. What is outstanding as of this commit, across `main` and every open PR:
+
+| version key | already on `main` | also claimed by | effect if both merge |
+| --- | --- | --- | --- |
+| `20261005190000` | `profiles_role_not_self_assignable` | PR #34 `stories_headline_invariant` | PR #34 silently never applied |
+| `20261005210000` | -- | PR #42 `api_keys_owner_update_policy` | one of the two silently dropped |
+| `20261005220000` | -- | PR #38 `story_byline_changes`, PR #41 `api_keys_drop_key_hash` | one of the two silently dropped |
+
+Two collisions earlier in the same repository were caught by hand rather than by tooling: PR #20's
+`20261005170000` would have dropped BEL-175's admin-delete RLS policy from an already-merged PR
+(BEL-188), and `20261005170000` itself had to be renumbered once already (BEL-180, PR #27).
+
+The actual fix is a check that fails CI on a duplicate version key, and it belongs with the test
+runner in PR #22 rather than with any one migration.
+
+## 10. Rerunnable
 
 `ADD COLUMN IF NOT EXISTS`, a backfill guarded on `IS NULL`, `DROP TRIGGER IF EXISTS` before
 `CREATE TRIGGER`, and `CREATE INDEX IF NOT EXISTS` are each safe to run again against a database
