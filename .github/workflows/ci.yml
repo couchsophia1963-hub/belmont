@@ -85,6 +85,31 @@ jobs:
       - name: Test
         run: npm test
 
+      # The edge function's harnesses. They are NOT covered by `npm test`, and the
+      # reason is explicit configuration rather than oversight: `vitest.config.ts`
+      # sets `include` to `src/**` and `scripts/**`, and `tsconfig.app.json` sets
+      # `include` to `["src"]`. So of the gates above, `typecheck` never sees
+      # `supabase/` at all, `test` cannot collect these files, and `build` is Vite
+      # over `src/`. Only `lint` reaches them.
+      #
+      # Before this step existed, both harnesses ran only when a person ran them by
+      # hand. That is the state a harness decays into: it keeps passing, nobody
+      # reads it, and a regression to the bug it was written for can be merged with
+      # every gate green. `api-key-auth.stub.test.mjs` exists specifically to catch
+      # a digest form that matches nothing -- a defect that is invisible at runtime
+      # and refuses every desk key -- and nothing executed it.
+      #
+      # These use `node:test`, so `node` runs them directly. Do NOT add them to
+      # `vitest.config.ts`'s `include` instead: vitest cannot collect `node:test`
+      # suites and every such file reports "No test suite found", which turns the
+      # run red for a reason that has nothing to do with the code. That was tried
+      # and reverted; it is recorded here so the next person does not try it again.
+      #
+      # No network, no database, and no credential: the fixtures are synthetic and
+      # every digest is computed at run time.
+      - name: Edge function harnesses
+        run: npm run test:fn
+
       # BEL-308. This proves the build-env gate itself, with no credential and
       # no outbound call, on every push and every PR.
       #

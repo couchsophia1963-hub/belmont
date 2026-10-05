@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:fn": "node supabase/functions/api/story-lock.stub.test.mjs && node supabase/functions/api/api-key-auth.stub.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "build-env": "node scripts/build-env.mjs",
     "build-env:probe": "node scripts/build-env.mjs --probe",
