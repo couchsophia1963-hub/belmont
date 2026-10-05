@@ -45,6 +45,28 @@ the PAT is what lets the CLI resolve the project and reach the Management API. T
 Everything below step 0 needs it. Without it the CLI stops at
 `Access token not provided`.
 
+### It is also the SQL route
+
+This is the part that makes the rest of this file enforceable rather than
+advisory. The same token gives a real SQL connection to the project, through the
+Management API, with no Postgres password involved:
+
+```bash
+supabase db query --linked "select version, name from supabase_migrations.schema_migrations order by version"
+```
+
+`--linked` resolves the project from the link step. `db query` also takes
+`--project-ref`, and `--file` to run a whole `.sql` file.
+
+That means the grants check, the `pg_policies` check, the icon pre-check and the
+post-push verification in this document are all runnable by the person doing the
+deploy, against the live project, with a result nobody has to transcribe into a
+chat thread. Run them here rather than asking someone to paste output back.
+
+Note what it is not: `db query` is for reading and for verification. Applying DDL
+goes through `db push` or `migration repair`, which is the ordering this file is
+built around.
+
 ## Step 1, before anything: reconcile `schema_migrations`
 
 The migrations in this directory may have been applied by hand through the
@@ -79,16 +101,33 @@ are also load-bearing.
 
 If a version is missing from the table, do not assume it needs replaying. Check
 whether its effect is already on the project — see the audit below — and then
-decide per file whether to replay it or mark it as applied:
+decide per file whether to replay it or mark it as applied.
 
-```sql
-insert into supabase_migrations.schema_migrations (version, name)
-values ('20261005150000', 'author_profiles_fk');
+Mark it as applied with `migration repair`, not with hand-written SQL. It is the
+supported command, it takes several versions at once, and it is what the CLI's own
+comparison is built around:
+
+```bash
+supabase migration repair --linked --status applied \
+  20261004123918 20261005115049 20261005123424
 ```
 
-Only do that for a file whose effect you have confirmed is already live. This is
-the reconciliation step, and it is a person's decision made after reading the
-audit. Do not let the CLI make it by guessing.
+`--status applied` inserts a history row without running the migration.
+`--status reverted` deletes one. Repairing a version that was never applied is the
+easy way to make `db push` skip work the schema still needs, so only do it for a
+file whose effect you have confirmed is already live.
+
+This is a person's decision made after reading the audit. Do not let the CLI make
+it by guessing.
+
+`supabase migration list` is the read side and prints local against remote:
+
+```bash
+supabase migration list --linked
+```
+
+It compares **timestamps only**, never names. That is the CLI's own behaviour, not
+a shortcut, and it is why the version prefixes above are the thing to match on.
 
 The reverse case is the quieter one. If a version **is** recorded but its effect
 was later hand-patched in the dashboard, `db push` will never touch it and the
@@ -134,10 +173,13 @@ first.
 
 **The thing to know about this file:** it re-creates `stories_admin_delete`
 without the `locked` guard, and it re-creates `comments_public_read`. Files 3, 6
-and 7 repair both later in the same push. So the end state is correct **only if
-the whole push completes.** If the push stops after file 1, the project is left
-with a delete policy that ignores `locked` and a comments table readable by
-`anon`. Read hazard A before running the first push.
+and 7 repair both later in the same push. So the end state is correct only if the
+whole push gets far enough.
+
+A push that fails later does not leave this file's state intact — file 3 has
+already restored the `locked` guard by then. What it does leave is
+`comments_public_read`, because file 6 is the only thing that closes it. Read
+hazard A.
 
 ### 2. `20261005115049_..._stories_writer_select_all.sql.sql`
 
@@ -308,32 +350,62 @@ rollback;
 
 The `rollback` has to be typed. Do not assume it happened.
 
-## Hazard A: four migrations open their own transaction
+## Hazard A: a push is not atomic across files
 
-Four of the seven files contain a bare `begin;` and `commit;` around their body:
+`supabase db push` applies **each migration file in its own transaction**. The
+CLI does not wrap the whole push in one. Atomicity is per file.
 
-- `20261005140000_weather_forecasts_deferred_fields.sql`
-- `20261005150000_author_profiles_fk.sql`
-- `20261005160000_comments_public_view.sql`
-- `20261005203000_stories_admin_delete_published_guard.sql`
+That means a push that fails part-way leaves every earlier file committed **and
+recorded**, and that is inherent to the CLI. No change to these files prevents it.
 
-`supabase db push` runs the push in its own transaction. A `commit;` inside a
-migration ends that transaction early. The consequence is not theoretical: if
-file 4 fails its icon validation, files 1 through 3 are already committed **and
-recorded**, and the project is left exactly in the state file 1 creates — a delete
-policy that ignores `locked`, and `comments_public_read` restored.
+The concrete case, because it matters for this repository. If `db push` fails at
+file 4:
 
-That is the rule-5 failure with extra steps. A blind retry then re-runs against a
-half-applied project and nobody can say what state it is in.
+- Files 1, 2 and 3 are committed and recorded.
+- File 3 has already re-created `stories_admin_delete` **with** the `locked`
+  guard, so the delete guard survives.
+- File 6 never ran, so **`comments_public_read` is live.** File 1 re-created it
+  and nothing closed it.
 
-**Before the first push, remove the `begin;` and `commit;` lines from those four
-files.** Under `db push` they are a no-op — the CLI already provides the
-transaction — and removing them restores push-level atomicity. Nothing else in
-the files depends on them.
+So the delete policy is fine and the comments exposure is back. That asymmetry is
+the thing to remember, because the delete policy is the one you would think to
+check.
 
-The one exception is the rollback-wrapped post-check above, if you move it into
-the file. That `begin;`/`rollback;` pair is deliberate and belongs inside its own
-transaction, not around the migration body.
+This is the rule-5 failure. A blind retry re-runs against a half-applied project
+and nobody can say what state it is in.
+
+### What actually reduces the risk
+
+Not editing the migrations. Shrinking what the push has to do:
+
+1. **Reconcile first.** Every file whose effect is already live gets
+   `migration repair --status applied`. `db push` then applies only the files that
+   genuinely are missing. If five of six are already applied, a failure touches one
+   file instead of six.
+2. **Close the comments exposure in its own push.** Once files 1 to 3 are recorded,
+   a push that only contains `20261005160000` either applies it or does not. There
+   is no window where it half-landed.
+3. **Push the icon-bearing file last**, after the pre-check in its audit entry
+   returns zero rows. It is the file most likely to fail.
+
+### The bare `begin;` / `commit;` — leave them
+
+Four of the seven files wrap their body in a bare `begin;` / `commit;`. Under
+`db push` these are close to inert: the `begin;` warns and does nothing, and the
+`commit;` is the last statement in each file, so it commits at roughly the point
+the CLI would commit anyway.
+
+An earlier version of this document recommended removing them, on the theory that
+`db push` wraps the whole push in one transaction and that the bare `commit;`
+truncated it. **That theory was wrong**, and the recommendation is withdrawn.
+
+Removing them would also cost something. These files are also the ones a person
+pastes into the dashboard SQL editor when there is no token, and in that path the
+`begin;` / `commit;` is the only thing making the file atomic. Trading real
+atomicity in the fallback path for nothing in the `db push` path is a bad trade.
+
+Leave them. If a future file needs to be appended to after its `commit;`, that is
+the moment to care.
 
 ## Hazard B: do not widen a grant to make a write succeed
 
@@ -411,21 +483,22 @@ Do not re-run it to see what happens.
    the two audited failures above and it is a data question, not a retry.
 2. Find out what is actually applied. Do not infer it from the CLI's last line:
 
-```sql
-select version, name from supabase_migrations.schema_migrations order by version;
+```bash
+supabase migration list --linked
 ```
 
-3. Check the policies directly, because hazard A means a failed push may have left
-   file 1's looser policies in place:
+3. Check the policies directly. Because a push is atomic per file and not across
+   files, a failure at file 4 leaves `comments_public_read` live while the
+   `locked` guard on `stories_admin_delete` survives:
 
-```sql
-select tablename, policyname, cmd, qual from pg_policies
- where schemaname = 'public'
-   and tablename in ('stories', 'comments')
- order by tablename, policyname;
+```bash
+supabase db query --linked "select tablename, policyname, cmd, qual from pg_policies
+  where schemaname = 'public' and tablename in ('stories','comments')
+  order by tablename, policyname"
 ```
 
-4. Repair deliberately, then push again.
+4. Repair deliberately, then push again. Use `migration repair` for the history
+   table, never a hand-written `insert`.
 
 ## What is not here
 
