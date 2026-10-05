@@ -53,6 +53,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, and it is not optional. `supabase/migrations/versions.test.ts`
+          # fails a pull request that reuses a migration version key, and to do
+          # that it has to read the merge target's migrations with
+          # `git ls-tree origin/main`. The default checkout is `--depth 1`: no
+          # remote-tracking refs, no `origin/main`, so the check would find
+          # nothing to compare against and pass. A green run would then mean
+          # "the comparison never happened" rather than "no collision", which is
+          # worse than no check at all because it looks like coverage.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

@@ -21,11 +21,22 @@ export default defineConfig({
     environment: 'jsdom',
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
-    // `scripts/*.test.mjs` is here for the build-env gate (BEL-308), which is
+// `scripts/*.test.mjs` is here for the build-env gate (BEL-308), which is
     // Node code with no jsdom and no TS. It declares `@vitest-environment node`
     // in a docblock, which is per-file and does not need a deprecated
     // `environmentMatchGlobs` entry here.
-    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
+    //
+    // `supabase/**` is here for one test: `supabase/migrations/versions.test.ts`,
+    // which fails a pull request that reuses a migration version key. It lives
+    // beside the files it checks rather than under `src/`, and declares
+    // `@vitest-environment node` for the same reason as the build-env gate: it
+    // shells out to `git` and needs no DOM. `src/test/setup.ts` guards on
+    // `typeof window`, so a node-environment file runs cleanly through it.
+    //
+    // Both extra patterns are deliberate and narrow. A test nobody runs protects
+    // nothing, so a new test goes under `src/` unless it checks something
+    // outside `src/`.
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs', 'supabase/**/*.test.{ts,tsx}'],
     restoreMocks: true,
   },
 });
