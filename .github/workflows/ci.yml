@@ -1,0 +1,97 @@
+name: CI
+
+# BEL-141. Nothing in this repo ran on a push before this workflow: `main` had
+# six merged PRs and no job had ever executed. A required check that has never
+# run is not a check, so this runs on every pull request and on a push to main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch cancels the run already in flight. Without this,
+# a PR that is pushed five times queues five builds and the oldest, least
+# relevant result can be the last one to report.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# `NODE_ENV` is pinned once, at the workflow level, so it reaches every step
+# including `npm ci`. Two distinct failures come from inheriting it from the
+# runner, and the larger one starts at install rather than at test:
+#
+#   1. `npm ci` under NODE_ENV=production drops devDependencies. Verified
+#      against this lockfile: 356 packages removed, including vitest,
+#      typescript, eslint, jsdom and @testing-library. On a cold runner that is
+#      `tsc: not found`, `eslint: not found`, `vitest: not found`, so the job
+#      cannot run any of its first three gates.
+#   2. Even with a warm node_modules, React resolves to its production bundle
+#      under NODE_ENV=production, where `act` is a no-op, and every test that
+#      renders a component fails with "act(...) is not supported in production
+#      builds of React".
+#
+# GitHub-hosted runners default to unset, so the job is green either way today.
+# That is the problem rather than the comfort: a gate that passes for the wrong
+# reason reports coverage it is not providing. Pinning it makes the result a
+# function of the commit instead of a function of the machine.
+#
+# This is top-level `env` and not `jobs.<id>.defaults.run.env` on purpose. The
+# latter is not valid workflow schema -- `defaults.run` accepts only `shell` and
+# `working-directory` -- and GitHub rejects the whole file over it. A per-step
+# `env:` on the Test step alone would also be wrong, because failure (1) starts
+# at `npm ci` and that step would still inherit the runner's value.
+env:
+  NODE_ENV: test
+
+jobs:
+  verify:
+    name: typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the lockfile, so `npm ci` resolves the same tree locally and
+          # in CI. The runner image ships its own Node, and `package.json` pins no
+          # `engines`, so this is the only statement of which Node is correct.
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` installs exactly what the lockfile says and fails if the two
+      # disagree. `npm install` would quietly update the lockfile and let a PR
+      # pass on packages nobody reviewed.
+      - name: Install dependencies
+        run: npm ci
+
+      # The build runs last on purpose. It is the slowest step and the one most
+      # likely to fail for a reason the earlier steps already explain, so a
+      # reviewer reading a red run finds the root cause first instead of last.
+      # Each of these is a gate on its own; `npm run build` does not imply the
+      # other three pass.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # No network and no database: the test suite mocks `@/lib/supabase`, so a
+      # green run says the routes and URL helpers are right, not that Supabase
+      # happened to be reachable at that moment.
+      - name: Test
+        run: npm test
+
+      # The app reads VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY at module load.
+      # They are placeholders, never real credentials: the anon key is a public
+      # value by design, but nothing from the secret store is placed in a workflow
+      # file. `npm run build` does not need a reachable project, and the test
+      # suite does not read them.
+      - name: Build
+        env:
+          VITE_SUPABASE_URL: https://placeholder.invalid
+          VITE_SUPABASE_ANON_KEY: placeholder-not-a-real-key
+        run: npm run build

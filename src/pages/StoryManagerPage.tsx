@@ -17,7 +17,6 @@ import {
   Save,
   Lock,
   Unlock,
-  RotateCcw,
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -90,7 +89,6 @@ function StoryManager({ role, userId }: { role: 'writer' | 'admin'; userId: stri
         <StoryList
           key={refreshKey}
           role={role}
-          userId={userId}
           onEdit={handleEdit}
           onNew={handleNew}
         />
@@ -108,12 +106,10 @@ function StoryManager({ role, userId }: { role: 'writer' | 'admin'; userId: stri
 // ============================================================
 function StoryList({
   role,
-  userId,
   onEdit,
   onNew,
 }: {
   role: 'writer' | 'admin';
-  userId: string;
   onEdit: (story: Story) => void;
   onNew: () => void;
 }) {

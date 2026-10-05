@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Share2, Copy, Check, Facebook, Twitter, Link as LinkIcon } from 'lucide-react';
+import { Share2, Copy, Check, Facebook, Twitter } from 'lucide-react';
 import { storyShareUrl } from '@/lib/storyUrl';
 
 interface ShareButtonProps {

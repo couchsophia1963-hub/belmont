@@ -54,5 +54,10 @@ export function siteBasePath(pathname: string): string {
  * checked for any deploy base without a browser.
  */
 export function storyShareUrl(slug: string, origin: string, pathname: string): string {
-  return `${origin}${siteBasePath(pathname)}${storyPath(slug)}`;
+  // `window.location.origin` never ends in a slash, so this does nothing for the
+  // share button. It is here because this function takes any string: a trailing
+  // slash on `origin` would concatenate into `//story/...`, which is a link that
+  // 404s for the reader who receives it.
+  const base = origin.replace(/\/+$/, '');
+  return `${base}${siteBasePath(pathname)}${storyPath(slug)}`;
 }
