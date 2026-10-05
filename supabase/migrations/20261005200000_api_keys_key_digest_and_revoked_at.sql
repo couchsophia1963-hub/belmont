@@ -52,10 +52,26 @@ across it:
 - the **deployed** panel, which sends `key_hash` and has never heard of `key_digest`
 - the **deployed** edge function, which looks up `.eq("key_hash", rawKey)`
 
-Making `key_digest` NOT NULL in this file would break the deployed panel immediately and visibly:
-its `insert` does not name the column, so every new key creation would fail on a NOT NULL
-violation. The column is therefore nullable here and the constraint moves to the migration that
-drops `key_hash`, once nothing can write a key without a digest.
+`key_digest` is nullable here. **The reason is that it must be, not that it is safer.**
+
+- `ALTER TABLE api_keys ADD COLUMN key_digest text NOT NULL` with no `DEFAULT` is refused outright on
+  a table that already has rows: `23502 column "key_digest" contains null values`. Verified. So the
+  constraint could not be applied in step 1 in the first place, whatever the trigger does.
+- The trigger in step 2 does make `NOT NULL` *satisfiable* later — PostgreSQL evaluates a NOT NULL
+  constraint **after** BEFORE-row triggers, so an insert naming only `key_hash` into a
+  `key_digest text NOT NULL` column is accepted and the digest is filled first.
+
+So the constraint is worth having once the trigger is proven, and it moves to the migration that drops
+`key_hash` (BEL-283). What this file must not do is claim the deployed panel would be broken by it.
+**An earlier draft of this file said exactly that and was wrong** — corrected here after it was run
+against a real PostgreSQL. See section 5.
+
+The honest reason to keep the column nullable in the meantime is that a NULL digest is the *silent*
+failure mode. Section 5 checks for it after applying.
+
+Against the comparison the base schema offers, `key_hash` is `text NOT NULL UNIQUE` with no default:
+this file matches it on uniqueness and on the absence of a default, and deliberately not on NOT NULL
+timing.
 
 `revoked_at` is nullable for the same reason plus the obvious one: `NULL` means the key is live, and
 every existing row is live.
@@ -80,13 +96,37 @@ to `key_digest` at any point, in either direction, with no key breaking in betwe
 The trigger runs `SECURITY INVOKER` and may only ever *fill* a column. It cannot remove a privilege
 or widen one, so unlike a narrowed grant it cannot half-apply.
 
+**One correction to this section, because the first version of it described a bug that does not
+occur.** The rotation branch above is insurance for a *future* UPDATE policy, not a repair of a live
+gap. `api_keys` carries RLS policies for SELECT, INSERT and DELETE (base schema `:232-245`) and
+**none for UPDATE**, across all nine migrations in the repository. Replayed as `authenticated`, which
+is how the panel connects, `handleRerollKey`'s `.update({ key_hash, key_prefix }).eq('id', keyId)`
+changes **0 rows** and supabase-js returns `{ data: null, error: null }` -- the code only inspects
+`error`, so the button that promises *"The old key will stop working immediately"* reports success
+and the old key keeps working.
+
+That is a live defect in its own right, in the blast radius of BEL-273 and tracked separately. It is
+named here because it is why the digest-of-the-old-key shape cannot occur **yet**, and a reader
+checking this branch deserves to know that. The branch becomes live the moment an UPDATE policy
+exists, which is when it will start earning its place.
+
 ## 6. Read this before applying: the grant precheck
 
 This file adds two columns and expects `authenticated` to keep writing its own rows while it does
 not know those columns exist. That works automatically **if** `authenticated`'s privileges on
-`api_keys` are table-level. Check rather than assume: if they are column-scoped, the first write
-that trips the trigger's column read fails at the boundary while the story-facing site keeps
-rendering normally.
+`api_keys` are table-level. Check rather than assume: if they are column-scoped, the **read side**
+stops working, and the story-facing site keeps rendering normally because it never touches this
+table.
+
+One correction to the reason, because the first version of this file gave the wrong one. It said the
+trigger's column read would fail. **A BEFORE-row trigger reads `NEW`/`OLD` from the row image, and
+PostgreSQL does not check column privileges on them.** Verified: with table-level `INSERT` granted and
+`SELECT` revoked entirely, the trigger still inserted and filled the digest correctly.
+
+The hazard under column-scoped grants is on the read side — `select *` and any named `key_digest`
+read are refused — and that refusal already exists today for the current columns, so a column-scoped
+`api_keys` would have broken the panel before this file ever ran. The stop instruction below is
+rightly cautious; it is aimed at a condition whose symptom would predate the change.
 
 Run this first:
 
@@ -178,22 +218,56 @@ version it has already recorded rather than rejecting it, so a replayed file is 
 `CREATE TRIGGER` without a preceding drop aborts on the second run (BEL-180, PR #27). Every
 `CREATE` in this file that is not `IF NOT EXISTS` is preceded by its drop.
 
-This file has not been executed. It has been reviewed and it is written; it is not applied, and it
-has not been run against a live PostgreSQL, because no agent on this beat can reach one.
+This file has **not** been applied to Belmont News. No agent on this beat can reach that database:
+the installed Supabase connection points at the Shipwright project, not Belmont News (BEL-48).
+Applying it is a human action in the Supabase dashboard, and section 6 still has to be run for real
+first.
 
-What *has* been done to it, so the next reviewer knows how far to trust that:
+It **has** been run, against a scratch PostgreSQL 18.1 with a faithful copy of `api_keys` -- the same
+table definition, the same three owner-scoped RLS policies, the same grant shape, three desk keys
+with plaintext in `key_hash`. 12 behavioural assertions, all passing:
 
-- The whole file parses. `libpg-query` (PostgreSQL 18's own parser, `parseSync`) accepts all 10
-  top-level statements, and `parsePlPgSQLSync` accepts all 3 PL/pgSQL units with no errors. This is
-  not a formality: the first draft chained `GET DIAGNOSTICS` onto `EXECUTE`, which PL/pgSQL does not
-  allow, and the parser caught it. Do not read "parses" as "runs".
-- Dollar-quoting, single quotes and block comments were checked with a lexer that follows the same
-  rules as the server's, because the trigger function is built inside a dollar-quoted string inside
-  a dollar-quoted `DO` body, which is where nesting mistakes hide.
-- The trigger function body was extracted from the `EXECUTE format(...)` string and parsed on its
-  own, so it was not validated only as opaque text.
-- Nothing has been run, so no claim is made here about what this file does to a real `api_keys`
-  table. Section 5 prints the checks to run after applying it.
+    PASS  old-panel INSERT (names key_hash only) succeeds                                    1 row(s)
+    PASS  the trigger filled key_digest from the plaintext                    got 41900ecc1df289cc… want 41900ecc1df289cc…
+    PASS  key_hash still holds the plaintext (the column is not dropped yet)
+    PASS  handleRerollKey as `authenticated` silently changes 0 rows         rowCount=0  (BEL-281 N3)
+    PASS  reroll as service_role: digest recomputed to the NEW plaintext    rows changed: 1
+    PASS  last_used_at-only UPDATE leaves the digest alone
+    PASS  revoked_at is settable and the row survives rather than being deleted
+    PASS  every un-revoked row resolves by its own digest (no key orphaned)                3 row(s)
+    PASS  select(*) STILL returns the plaintext column -- this file leaves that open
+    PASS  the narrowed column list works and omits both secret and digest columns
+    PASS  rerunnable: second and third apply are clean no-ops                       rows 4 -> 4
+    PASS  section 6 precheck: table-level, and column scope includes both new columns
+
+What that harness caught, which reading the file did not:
+
+- **The INSERT branch used a bare `key_hash`** under the `search_path = pg_catalog, pg_temp` the same
+  function sets, so it resolved against nothing: `42703 column "key_hash" does not exist`, on every
+  key the desk creates. Found by Sam Oyelaran on BEL-281. This file's own step-5 check could not see
+  it -- the migration applied cleanly and reported a clean bill of health, and only the *write* failed.
+  That is the silent direction a migration half-applies in, and it is the reason the assertion above
+  exists.
+- **`pg_get_function_identity_arguments(p.oid) = 'text, text'` matched nothing** when `digest` is
+  declared with named parameters -- it returns `data text, how text`, not `text, text`. This was mine,
+  found by the harness an hour later, and it is the more embarrassing of the two: the entire reason
+  this file resolves the function instead of writing `extensions.digest` is to carry no assumption
+  nobody can check from here, and a name-sensitive match put the assumption straight back. Now
+  `oidvectortypes`, which reports types only. The preflight refuses cleanly with nothing applied.
+- The two wrong claims in sections 4 and 6 above, corrected against the engine rather than argued.
+
+Reverted-to-pre-fix copies of both defects were run against the same fixture to confirm the harness
+actually fails on them, because a test that passes on the broken version is worth nothing: the bare
+`key_hash` variant applies cleanly and then fails the insert with 42703, and the
+`pg_get_function_identity_arguments` variant is refused by the preflight with nothing applied.
+
+Two limits worth stating plainly:
+
+- The scratch server stands in for `pgcrypto`. `extensions.digest(text, text)` is a local
+  implementation backed by the built-in `sha256(bytea)`, which is the *shape* the preflight resolves
+  for, so the resolution logic was exercised -- the actual extension was not present.
+- This establishes engine behaviour on a fixture. It is not the state of the Belmont News database.
+  Section 6 has to be run against the real grants before anyone applies this.
 */
 
 -- ---------------------------------------------------------------------------------------------
@@ -208,6 +282,23 @@ What *has* been done to it, so the next reviewer knows how far to trust that:
 --    plain PostgreSQL install puts it in `public`, and no agent on this beat can look to find out
 --    which this database is (BEL-48). Resolving `digest(text, text)` in whichever schema holds it
 --    means this file does not depend on an answer nobody has verified.
+--
+--    The match is on `oidvectortypes(p.proargtypes)`, NOT on
+--    `pg_get_function_identity_arguments(p.oid) = 'text, text'`. That looked equivalent and is not:
+--    identity_arguments keeps the declared parameter names, so a `digest` defined as
+--    `digest(data text, how text)` reports `data text, how text` and matches nothing. Verified on
+--    PostgreSQL 18.1 against both spellings:
+--
+--        proname         identity_args     oidvectortypes
+--        digest(text,text)  text, text       text, text
+--        digest(a text, b text)  a text, b text   text, text
+--
+--    pgcrypto happens to declare its own `digest` with unnamed parameters, so the string form
+--    probably works on Supabase today -- "probably" is the problem. The whole reason this file
+--    resolves the function instead of writing `extensions.digest` is to carry no assumption nobody
+--    can check from here, and a name-sensitive match puts the assumption back. `oidvectortypes`
+--    reports types only, so it is unaffected by parameter names and still rejects the
+--    `digest(bytea, text)` overload.
 -- ---------------------------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -219,7 +310,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE p.proname = 'digest'
      AND n.nspname <> 'pg_catalog'
-     AND pg_get_function_identity_arguments(p.oid) = 'text, text'
+     AND oidvectortypes(p.proargtypes) = 'text, text'
    ORDER BY n.nspname
    LIMIT 1;
 
@@ -263,7 +354,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE p.proname = 'digest'
      AND n.nspname <> 'pg_catalog'
-     AND pg_get_function_identity_arguments(p.oid) = 'text, text'
+     AND oidvectortypes(p.proargtypes) = 'text, text'
    ORDER BY n.nspname
    LIMIT 1;
 
@@ -293,7 +384,11 @@ BEGIN
     BEGIN
       IF TG_OP = 'INSERT' THEN
         IF NEW.key_digest IS NULL AND NEW.key_hash IS NOT NULL THEN
-          NEW.key_digest := encode(%1$s(key_hash, 'sha256'), 'hex');
+          -- `NEW.key_hash`, never a bare `key_hash`. This function sets
+          -- search_path = pg_catalog, pg_temp, so an unqualified column name resolves against
+          -- nothing and the statement fails with SQLSTATE 42703 -- on the INSERT branch only,
+          -- which is every key the desk creates. See section 5.
+          NEW.key_digest := encode(%1$s(NEW.key_hash, 'sha256'), 'hex');
         END IF;
       ELSE
         -- The plaintext moved, so the digest has to follow it. This is the case that keeps the old
@@ -384,7 +479,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE p.proname = 'digest'
      AND n.nspname <> 'pg_catalog'
-     AND pg_get_function_identity_arguments(p.oid) = 'text, text'
+     AND oidvectortypes(p.proargtypes) = 'text, text'
    ORDER BY n.nspname
    LIMIT 1;
 
@@ -410,3 +505,26 @@ BEGIN
         AND grantee = 'authenticated' AND privilege_type = 'UPDATE');
 END
 $$;
+-- ---------------------------------------------------------------------------------------------
+-- 6. Tell PostgREST the schema changed.
+--
+--    Supabase's PostgREST serves column lists from a schema cache, and it reloads that cache from a
+--    notification. When the notification queue fails to deliver, the cache goes stale silently and
+--    the first request naming the new column fails with PGRST204 while the SQL above is perfectly
+--    happy. This repository has been bitten by exactly that:
+--    `20261005150000_author_profiles_fk.sql:24` records a PGRST200.
+--
+--    There is no effect on the panel today, because its insert does not name `key_digest` -- the
+--    trigger fills it. It matters at the step that does: BEL-282 switches
+--    `api/index.ts:41-43` from `.eq("key_hash", ...)` to `.eq("key_digest", ...)`, and that request
+--    goes through PostgREST via supabase-js. It is cheaper to send the signal now than to diagnose a
+--    PGRST204 later.
+--
+--    Sent bare, with no guard, and that is deliberate. A first draft wrapped this in a DO block with
+--    an exception handler, on the theory that NOTIFY to a channel nobody is listening on would abort
+--    the migration on its last statement. It does not: a channel is created on demand by LISTEN, and
+--    NOTIFY is fire-and-forget. Verified -- `NOTIFY pgrst, 'reload schema'` on a server with no
+--    listener completes without raising, and the handler never fires. The guard was dead code
+--    defending against a failure that cannot happen, so it is gone rather than kept as comfort.
+-- ---------------------------------------------------------------------------------------------
+NOTIFY pgrst, 'reload schema';
