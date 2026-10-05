@@ -260,12 +260,46 @@ The table covers two things, and the check fails on a third:
 - **Covered, declared:** every mutating call outside those bodies. There is exactly one,
   `OUT_OF_BRANCH_WRITES` entry for `api_keys.last_used_at`, which `authenticate()`
   refreshes before it checks the caller's profile.
-- **Fails:** any other mutating call anywhere in `index.ts`, because a write that no row
-  claims is a write nobody has answered "who may do this" about.
+- **Fails, as `UNMODELLED SURFACE`:** anything that reaches the database or changes who
+  may write, and that the three models above do not account for.
 
 A role test sitting *outside* a branch -- in `authenticate()`, for instance -- is read
 and does not belong to any action row. That is the boundary, stated here rather than
 assumed.
+
+### What that last bullet does and does not mean
+
+This bullet used to read "**Fails:** any other mutating call anywhere in `index.ts`". That was a stronger
+promise than the implementation kept, and shipping it is what BEL-293's re-review called a change request
+rather than a ticket: a guarantee sentence the code does not enforce is the same defect as the allow-list
+itself, one level up, and the `api-of-record` contract leans on this file as the mechanical authority for the
+role column. So the sentence is narrowed to what is actually enforced.
+
+The scan looks for **capability**, and treats everything it matches but cannot account for as a failure.
+Concretely, on `index.ts`:
+
+| detected | example |
+| --- | --- |
+| a Supabase client call outside the four table writes and the reads | `.rpc("escalate_my_role")`, `.storage.from("avatars").remove([...])` |
+| a raw `fetch` whose options carry a mutating method | `fetch(url, { method: "PATCH", apikey: ... })` |
+
+and on `supabase/migrations/*.sql`:
+
+| detected | example |
+| --- | --- |
+| RLS switched off, so no policy is consulted | `ALTER TABLE public.stories DISABLE ROW LEVEL SECURITY` |
+| a privilege change | `GRANT ... TO <role>`, `REVOKE ... FROM <role>`, `ALTER ... OWNER TO` |
+| a `SECURITY DEFINER` function, which runs as its owner | `CREATE FUNCTION ... SECURITY DEFINER` |
+
+`FORCE ROW LEVEL SECURITY` narrows rather than widens and is deliberately not reported.
+
+**The residual gap, stated rather than hidden:** the client-call half is a list of method *names*
+(`UNMODELLED_CALL` in `scripts/check-api-authorization.mjs`), so a Supabase client method this file has
+never heard of is not read and therefore not failed. Inverting that half properly means deciding which of
+the client's own read methods are safe -- `.eq`, `.order`, `.single`, `.then` and the rest -- and failing on
+anything else, which is a larger change with a real risk of going red on a correct tree. A check that is
+permanently red is a check people learn to ignore, and then it stops being red on incorrect code either. The
+SQL half has no such gap: it scans for verbs rather than for a set of object names.
 
 ## Deploy ordering
 
