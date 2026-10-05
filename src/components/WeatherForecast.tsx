@@ -10,8 +10,11 @@ import {
   Droplets,
   Sunrise,
   Sunset,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useState } from 'react';
 import { VALID_ICON_CODES } from '../lib/weatherContract';
 
 export type ValidIconCode = (typeof VALID_ICON_CODES)[number];
@@ -61,10 +64,30 @@ interface WeatherForecastProps {
   totalDays?: number;
 }
 
+type ForecastDay = WeatherForecastProps['forecasts'][number];
+
+function getWindLabel(day: ForecastDay): string {
+  const hasWindRange =
+    !!day.wind_direction &&
+    typeof day.wind_min === 'number' &&
+    typeof day.wind_max === 'number';
+  return hasWindRange
+    ? `${day.wind_direction} ${day.wind_min}–${day.wind_max} mph`
+    : `${day.wind_speed} mph`;
+}
+
 export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
   if (forecasts.length === 0) return null;
 
   const dayCount = totalDays ?? forecasts.length;
+  const summaryForecast = forecasts[0];
+  const summaryPrecipitation =
+    typeof summaryForecast.precipitation_chance === 'number'
+      ? `${summaryForecast.precipitation_chance}%`
+      : '—';
+  const summaryWind = getWindLabel(summaryForecast);
   const gridCols =
     dayCount <= 3
       ? 'grid-cols-1 sm:grid-cols-3'
@@ -74,16 +97,35 @@ export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) 
 
   return (
     <section className="mb-12">
-      <div className="rounded-2xl overflow-hidden shadow-lg bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900">
-        <div className="px-6 py-4 border-white/10 flex items-center justify-between border-b">
-          <div className="flex items-center gap-2">
-            <Sun className="w-5 h-5 text-accent-500" />
-            <h2 className="text-white font-sans text-sm font-bold uppercase tracking-wider">
-              Belmont 43718 — {dayCount} Day Forecast
-            </h2>
-          </div>
+      <div className="rounded-2xl overflow-hidden shadow-lg bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900 dark:from-primary-700 dark:via-primary-800 dark:to-primary-950">
+        <div className={`px-6 py-4 border-white/10 flex items-center justify-between ${collapsed ? '' : 'border-b'}`}>
+          {collapsed ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-white">
+              <Sun className="w-5 h-5 flex-shrink-0 text-accent-500" />
+              <h2 className="font-sans text-sm font-bold tracking-wide">
+                Belmont 43718 — {summaryForecast.condition}, {summaryForecast.high_temp}° / {summaryForecast.low_temp}°, {summaryPrecipitation}, {summaryWind}
+              </h2>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Sun className="w-5 h-5 text-accent-500" />
+              <h2 className="text-white font-sans text-sm font-bold uppercase tracking-wider">
+                Belmont 43718 — {dayCount} Day Forecast
+              </h2>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            className="ml-4 flex-shrink-0 rounded-lg p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? 'Expand weather forecast' : 'Collapse weather forecast'}
+            title={collapsed ? 'Expand weather forecast' : 'Collapse weather forecast'}
+          >
+            {collapsed ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
+          </button>
         </div>
-        <div className={`grid ${gridCols} divide-y sm:divide-y-0 sm:divide-x divide-white/10`}>
+        {!collapsed && <div className={`grid ${gridCols} divide-y sm:divide-y-0 sm:divide-x divide-white/10`}>
           {forecasts.map((day, idx) => {
             const Icon = getWeatherIcon(day.icon);
             const date = new Date(day.forecast_date + 'T00:00:00');
@@ -109,13 +151,7 @@ export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) 
             const sunset = formatClock(day.sunset);
             const showSolar = sunrise !== null && sunset !== null;
 
-            const hasWindRange =
-              !!day.wind_direction &&
-              typeof day.wind_min === 'number' &&
-              typeof day.wind_max === 'number';
-            const windLabel = hasWindRange
-              ? `${day.wind_direction} ${day.wind_min}–${day.wind_max} mph`
-              : `${day.wind_speed} mph`;
+            const windLabel = getWindLabel(day);
 
             return (
               <div
@@ -166,7 +202,7 @@ export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) 
               </div>
             );
           })}
-        </div>
+        </div>}
       </div>
     </section>
   );

@@ -106,8 +106,8 @@ const CASES = [
 /**
  * Guards the other half of the story. Under BEL-92 the share button builds the
  * address from the slug via `storyShareUrl`, so it must never emit a `#/` form
- * again. The build still on the host does, which is why the pool of stranded
- * links is growing rather than fixed.
+ * again. The deployed bundle does not (checked 2026-10-05), so this is a
+ * regression guard on the fixed behaviour, not a live defect.
  */
 const SHARE_CASES = [
   ['from the homepage', 'wall-that-heals', '/', '/story/wall-that-heals'],

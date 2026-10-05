@@ -20,8 +20,17 @@ import { ArrowLeft, FileQuestion } from 'lucide-react';
 export function NotFoundPage() {
   const location = useLocation();
 
+  // Restore whatever title the previous page left behind. Without the cleanup
+  // this effect set the title once and never took it back, so a reader who hit
+  // one bad link kept seeing "Page not found" in the tab for the rest of the
+  // session, including back on the homepage. No other page sets a title, so in
+  // practice this restores the one in index.html.
   useEffect(() => {
+    const previousTitle = document.title;
     document.title = 'Page not found — Belmont County News';
+    return () => {
+      document.title = previousTitle;
+    };
   }, []);
 
   return (
@@ -30,23 +39,23 @@ export function NotFoundPage() {
         <FileQuestion className="w-8 h-8 text-white" />
       </div>
 
-      <p className="font-sans text-sm font-bold uppercase tracking-wider text-primary-600 mb-2">
+      <p className="font-sans text-sm font-bold uppercase tracking-wider text-primary-600 dark:text-primary-400 mb-2">
         404
       </p>
-      <h1 className="font-serif text-3xl sm:text-4xl font-black text-stone-900 leading-tight mb-4">
+      <h1 className="font-serif text-3xl sm:text-4xl font-black text-stone-900 dark:text-stone-50 leading-tight mb-4">
         We could not find that page
       </h1>
-      <p className="font-sans text-lg text-stone-600 leading-relaxed mb-2">
-        The address <code className="font-mono text-base text-stone-800 break-all">{location.pathname}</code>{' '}
+      <p className="font-sans text-lg text-stone-600 dark:text-stone-400 leading-relaxed mb-2">
+        The address <code className="font-mono text-base text-stone-800 dark:text-stone-200 break-all">{location.pathname}</code>{' '}
         does not match a page on this site.
       </p>
-      <p className="font-sans text-base text-stone-500 mb-8">
+      <p className="font-sans text-base text-stone-500 dark:text-stone-400 mb-8">
         If you followed a link to a story, the link may be old or mistyped. The latest stories are on the front page.
       </p>
 
       <Link
         to="/"
-        className="inline-flex items-center gap-2 font-sans text-sm font-bold text-primary-700 hover:underline"
+        className="inline-flex items-center gap-2 font-sans text-sm font-bold text-primary-700 dark:text-primary-400 hover:underline"
       >
         <ArrowLeft className="w-4 h-4" /> Back to Home
       </Link>

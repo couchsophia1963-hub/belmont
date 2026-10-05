@@ -146,6 +146,10 @@ Deno.serve(async (req: Request) => {
 
       if (action === "update") {
         if (!id) return errorResponse("Update requires 'id'", 400);
+        // No lock check here on purpose. Lock is narrow: it prevents deletion,
+        // nothing more. A correction is an update, so a locked story has to
+        // stay correctable -- a story nobody can fix is a worse failure than
+        // one somebody can delete. See BEL-83 item 2.
         const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (data?.title) {
           updateData.title = data.title;
@@ -192,6 +196,18 @@ Deno.serve(async (req: Request) => {
 
       if (action === "unpublish") {
         if (!id) return errorResponse("Unpublish requires 'id'", 400);
+        // Without this a writer key lifts a freeze with one call, which makes
+        // lock advisory rather than enforced.
+        const { data: lockRow, error: lockCheckError } = await supabase
+          .from("stories")
+          .select("locked")
+          .eq("id", id)
+          .maybeSingle();
+        if (lockCheckError) return errorResponse(lockCheckError.message, 500);
+        if (!lockRow) return errorResponse("Story not found", 404);
+        if (lockRow.locked) {
+          return errorResponse("Story is locked and cannot be unpublished. Unlock it first.", 409);
+        }
         const { data: story, error } = await supabase
           .from("stories")
           .update({ published: false, updated_at: new Date().toISOString() })
@@ -320,6 +336,9 @@ Deno.serve(async (req: Request) => {
 
       if (action === "delete") {
         if (!id) return errorResponse("Delete requires 'id'", 400);
+        if (profile.role !== "admin") {
+          return errorResponse("Only admins can delete weather forecasts", 403);
+        }
         const { error } = await supabase.from("weather_forecasts").delete().eq("id", id);
         if (error) return errorResponse(error.message, 500);
         return jsonResponse({ success: true });

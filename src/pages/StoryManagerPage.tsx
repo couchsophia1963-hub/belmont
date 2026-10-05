@@ -80,8 +80,8 @@ function StoryManager({ role, userId }: { role: 'writer' | 'admin'; userId: stri
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
       <div className="mb-6">
-        <h1 className="font-serif text-3xl font-black text-stone-900">Story Manager</h1>
-        <p className="font-sans text-sm text-stone-500 mt-1">
+        <h1 className="font-serif text-3xl font-black text-stone-900 dark:text-stone-50">Story Manager</h1>
+        <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mt-1">
           Create, edit, and manage news stories for Belmont County News.
         </p>
       </div>
@@ -225,11 +225,11 @@ function StoryList({
   return (
     <div>
       {actionError && (
-        <div className="mb-4 p-4 rounded-lg bg-error-50 border border-error-200 flex items-start justify-between gap-3">
-          <p className="font-sans text-sm font-semibold text-error-700">{actionError}</p>
+        <div className="mb-4 p-4 rounded-lg bg-error-50 dark:bg-error-900/30 border border-error-200 dark:border-error-700 flex items-start justify-between gap-3">
+          <p className="font-sans text-sm font-semibold text-error-700 dark:text-error-400">{actionError}</p>
           <button
             onClick={() => setActionError(null)}
-            className="text-error-600 hover:text-error-800 flex-shrink-0"
+            className="text-error-600 dark:text-error-400 hover:text-error-800 flex-shrink-0"
           >
             <Unlock className="w-4 h-4" />
           </button>
@@ -244,13 +244,13 @@ function StoryList({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search stories..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
           />
         </div>
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value as typeof filter)}
-          className="px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm font-semibold text-stone-700 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+          className="px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-stone-800"
         >
           <option value="all">All Stories</option>
           <option value="published">Published</option>
@@ -266,7 +266,7 @@ function StoryList({
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-6 space-y-3">
             {[1, 2, 3, 4].map((i) => (
@@ -275,10 +275,10 @@ function StoryList({
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center">
-            <p className="font-sans text-sm text-stone-400 mb-2">No stories found</p>
+            <p className="font-sans text-sm text-stone-400 dark:text-stone-500 mb-2">No stories found</p>
             <button
               onClick={onNew}
-              className="font-sans text-sm font-bold text-primary-700 hover:text-primary-800"
+              className="font-sans text-sm font-bold text-primary-700 dark:text-primary-400 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300"
             >
               Create your first story
             </button>
@@ -286,20 +286,20 @@ function StoryList({
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b border-stone-200 bg-stone-50">
-                <th className="text-left py-3 px-4 font-sans font-bold text-stone-600 text-sm">Title</th>
-                <th className="text-left py-3 px-4 font-sans font-bold text-stone-600 text-sm hidden sm:table-cell">Category</th>
-                <th className="text-left py-3 px-4 font-sans font-bold text-stone-600 text-sm hidden md:table-cell">Date</th>
-                <th className="text-center py-3 px-2 font-sans font-bold text-stone-600 text-sm">Published</th>
-                <th className="text-center py-3 px-2 font-sans font-bold text-stone-600 text-sm">Headline</th>
-                <th className="text-right py-3 px-4 font-sans font-bold text-stone-600 text-sm">Actions</th>
+              <tr className="border-b border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/50">
+                <th className="text-left py-3 px-4 font-sans font-bold text-stone-600 dark:text-stone-300 text-sm">Title</th>
+                <th className="text-left py-3 px-4 font-sans font-bold text-stone-600 dark:text-stone-300 text-sm hidden sm:table-cell">Category</th>
+                <th className="text-left py-3 px-4 font-sans font-bold text-stone-600 dark:text-stone-300 text-sm hidden md:table-cell">Date</th>
+                <th className="text-center py-3 px-2 font-sans font-bold text-stone-600 dark:text-stone-300 text-sm">Published</th>
+                <th className="text-center py-3 px-2 font-sans font-bold text-stone-600 dark:text-stone-300 text-sm">Headline</th>
+                <th className="text-right py-3 px-4 font-sans font-bold text-stone-600 dark:text-stone-300 text-sm">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((story) => (
                 <tr
                   key={story.id}
-                  className="border-b border-stone-100 hover:bg-stone-50 transition-colors"
+                  className="border-b border-stone-100 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
                 >
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
@@ -311,11 +311,11 @@ function StoryList({
                         />
                       )}
                       <div className="min-w-0 flex-1">
-                        <span className="font-sans text-sm font-semibold text-stone-800 line-clamp-2">
+                        <span className="font-sans text-sm font-semibold text-stone-800 dark:text-stone-100 line-clamp-2">
                           {story.title}
                         </span>
                         {story.locked && (
-                          <span className="inline-flex items-center gap-1 mt-0.5 font-sans text-xs font-bold text-primary-700 bg-primary-50 px-1.5 py-0.5 rounded">
+                          <span className="inline-flex items-center gap-1 mt-0.5 font-sans text-xs font-bold text-primary-700 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 px-1.5 py-0.5 rounded">
                             <Lock className="w-3 h-3" />
                             Locked
                           </span>
@@ -324,11 +324,11 @@ function StoryList({
                     </div>
                   </td>
                   <td className="py-3 px-4 hidden sm:table-cell">
-                    <span className="font-sans text-xs font-semibold text-primary-700 bg-primary-50 px-2 py-1 rounded-full">
+                    <span className="font-sans text-xs font-semibold text-primary-700 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 px-2 py-1 rounded-full">
                       {story.category}
                     </span>
                   </td>
-                  <td className="py-3 px-4 font-sans text-xs text-stone-500 hidden md:table-cell whitespace-nowrap">
+                  <td className="py-3 px-4 font-sans text-xs text-stone-500 dark:text-stone-400 hidden md:table-cell whitespace-nowrap">
                     {new Date(story.created_at).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
@@ -367,7 +367,7 @@ function StoryList({
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => onEdit(story)}
-                        className="p-1.5 rounded-lg text-stone-500 hover:text-primary-700 hover:bg-primary-50 transition-colors"
+                        className="p-1.5 rounded-lg text-stone-500 dark:text-stone-400 dark:text-stone-500 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-400 dark:hover:text-primary-400 hover:bg-primary-50 dark:bg-primary-900/30 transition-colors"
                         title="Edit"
                       >
                         <Pencil className="w-4 h-4" />
@@ -380,15 +380,15 @@ function StoryList({
                             title={story.locked ? 'Unlock story' : 'Lock story (prevent deletion)'}
                           >
                             {story.locked ? (
-                              <Lock className="w-4 h-4 text-primary-700" />
+                              <Lock className="w-4 h-4 text-primary-700 dark:text-primary-400" />
                             ) : (
-                              <Unlock className="w-4 h-4 text-stone-400 hover:text-primary-700" />
+                              <Unlock className="w-4 h-4 text-stone-400 dark:text-stone-500 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-400" />
                             )}
                           </button>
                           <button
                             onClick={() => setActionTarget({ id: story.id, action: 'delete' })}
                             disabled={story.locked}
-                            className="p-1.5 rounded-lg text-stone-500 hover:text-error-600 hover:bg-error-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="p-1.5 rounded-lg text-stone-500 hover:text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                             title={story.locked ? 'Unlock to delete' : 'Delete story'}
                           >
                             <Trash2 className="w-4 h-4" />
@@ -404,7 +404,7 @@ function StoryList({
         )}
       </div>
 
-      <p className="font-sans text-xs text-stone-400 mt-3 text-center">
+      <p className="font-sans text-xs text-stone-400 dark:text-stone-500 mt-3 text-center">
         {filtered.length} {filtered.length === 1 ? 'story' : 'stories'}
         {role === 'writer' && ' — only admins can delete or lock stories'}
       </p>
@@ -518,7 +518,7 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 font-sans text-sm font-semibold text-stone-600 hover:text-primary-700 transition-colors"
+          className="flex items-center gap-1.5 font-sans text-sm font-semibold text-stone-600 dark:text-stone-300 hover:text-primary-700 dark:text-primary-400 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to stories
@@ -534,27 +534,27 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
       </div>
 
       {error && (
-        <div className="mb-4 p-4 rounded-lg bg-error-50 border border-error-200">
-          <p className="font-sans text-sm font-semibold text-error-700">{error}</p>
+        <div className="mb-4 p-4 rounded-lg bg-error-50 dark:bg-error-900/30 border border-error-200 dark:border-error-700">
+          <p className="font-sans text-sm font-semibold text-error-700 dark:text-error-400">{error}</p>
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6 space-y-5">
+      <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm p-6 space-y-5">
         <div>
-          <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+          <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
             Title <span className="text-error-500">*</span>
           </label>
           <input
             type="text"
             value={title}
             onChange={(e) => handleTitleChange(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-base text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-base text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
             placeholder="Enter story title..."
           />
         </div>
 
         <div>
-          <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+          <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
             URL Slug
           </label>
           <input
@@ -564,23 +564,23 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
               setSlug(e.target.value);
               setSlugEdited(true);
             }}
-            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-mono text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-mono text-sm text-stone-700 dark:text-stone-200 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
             placeholder="auto-generated-from-title"
           />
-          <p className="font-sans text-xs text-stone-400 mt-1">
+          <p className="font-sans text-xs text-stone-400 dark:text-stone-500 mt-1">
             The URL path for this story. Leave blank to auto-generate from the title.
           </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
-            <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+            <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
               Category
             </label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm font-semibold text-stone-700 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+              className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-stone-800"
             >
               {CATEGORIES.map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -589,14 +589,14 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
           </div>
 
           <div>
-            <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+            <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
               Featured Image URL
             </label>
             <input
               type="text"
               value={imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+              className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
               placeholder="https://..."
             />
           </div>
@@ -609,7 +609,7 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
         )}
 
         <div>
-          <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+          <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
             Excerpt <span className="text-error-500">*</span>
           </label>
           <textarea
@@ -617,34 +617,34 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
             onChange={(e) => setExcerpt(e.target.value)}
             rows={2}
             maxLength={300}
-            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all resize-none"
+            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all resize-none"
             placeholder="A short summary that appears on the homepage and story cards..."
           />
-          <p className="font-sans text-xs text-stone-400 mt-1 text-right">
+          <p className="font-sans text-xs text-stone-400 dark:text-stone-500 mt-1 text-right">
             {excerpt.length}/300
           </p>
         </div>
 
         <div>
-          <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+          <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
             Body <span className="text-error-500">*</span>
           </label>
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={16}
-            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all resize-y"
+            className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all resize-y"
             placeholder="Write the full story here. Use blank lines to separate paragraphs."
           />
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 pt-2 border-t border-stone-100">
+        <div className="flex flex-col sm:flex-row gap-4 pt-2 border-t border-stone-100 dark:border-stone-800">
           <label className="flex items-center gap-3 cursor-pointer">
             <button
               type="button"
               onClick={() => setPublished(!published)}
               className={`relative w-11 h-6 rounded-full transition-colors ${
-                published ? 'bg-success-500' : 'bg-stone-300'
+                published ? 'bg-success-500' : 'bg-stone-300 dark:bg-stone-600'
               }`}
             >
               <span
@@ -653,7 +653,7 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
                 }`}
               />
             </button>
-            <span className="font-sans text-sm font-semibold text-stone-700">
+            <span className="font-sans text-sm font-semibold text-stone-700 dark:text-stone-200">
               {published ? 'Published' : 'Draft'}
             </span>
           </label>
@@ -663,7 +663,7 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
               type="button"
               onClick={() => setIsHeadline(!isHeadline)}
               className={`relative w-11 h-6 rounded-full transition-colors ${
-                isHeadline ? 'bg-accent-500' : 'bg-stone-300'
+                isHeadline ? 'bg-accent-500' : 'bg-stone-300 dark:bg-stone-600'
               }`}
             >
               <span
@@ -672,7 +672,7 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
                 }`}
               />
             </button>
-            <span className="font-sans text-sm font-semibold text-stone-700 flex items-center gap-1">
+            <span className="font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 flex items-center gap-1">
               <Star className={`w-4 h-4 ${isHeadline ? 'text-accent-500 fill-accent-500' : 'text-stone-400'}`} />
               Headline story
             </span>
@@ -707,16 +707,16 @@ function ConfirmDialog({
       onClick={onCancel}
     >
       <div
-        className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6"
+        className="bg-white dark:bg-stone-800 rounded-xl shadow-xl max-w-sm w-full p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-error-100 flex items-center justify-center flex-shrink-0">
-            <Trash2 className="w-5 h-5 text-error-600" />
+          <div className="w-10 h-10 rounded-full bg-error-100 dark:bg-error-900/40 flex items-center justify-center flex-shrink-0">
+            <Trash2 className="w-5 h-5 text-error-600 dark:text-error-400" />
           </div>
           <div>
-            <h3 className="font-serif text-lg font-bold text-stone-900">{title}</h3>
-            <p className="font-sans text-sm text-stone-500 mt-1">{message}</p>
+            <h3 className="font-serif text-lg font-bold text-stone-900 dark:text-stone-50">{title}</h3>
+            <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mt-1">{message}</p>
           </div>
         </div>
         <div className="flex gap-3 justify-end">

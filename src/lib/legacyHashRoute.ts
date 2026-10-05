@@ -13,10 +13,14 @@
  * page for a story they asked for, and nothing upstream sees a miss. That is
  * the exact failure BEL-92 was opened to remove, moved onto the old links.
  *
- * The build currently on the host is still minting these: its share button
- * emits `${origin}${pathname}#/story/${slug}`. So the pool of them is growing
- * until a deploy carries the fixed share button, which makes this shim worth
- * more than a one-time tidy.
+ * The build on the host no longer mints these. Its share button builds the
+ * address from the slug via `storyShareUrl` (BEL-92), verified 2026-10-05
+ * against the deployed bundle: it emits `${origin}${siteBasePath(pathname)}/
+ * story/${slug}`, with no hash. So the pool is fixed, not growing, and this
+ * shim is a one-time tidy for links already in the wild rather than an
+ * ongoing leak. The links do not expire on their own: they sit in pasted
+ * text, in social cards and in search results, so they keep arriving for as
+ * long as anyone holds one.
  *
  * This module only decides the target path. Performing the redirect is the
  * caller's job, so the rule can be checked without a browser.

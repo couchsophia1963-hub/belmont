@@ -45,12 +45,12 @@ export function DashboardPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
       <div className="mb-8">
-        <h1 className="font-serif text-3xl font-black text-stone-900">Dashboard</h1>
+        <h1 className="font-serif text-3xl font-black text-stone-900 dark:text-stone-50">Dashboard</h1>
         <p className="font-sans text-sm text-stone-500 mt-1">
           Welcome back, {profile.display_name || profile.email}
         </p>
         <div className="mt-3 inline-flex items-center gap-2">
-          <span className="font-sans text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-primary-100 text-primary-700">
+          <span className="font-sans text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300">
             {profile.role}
           </span>
         </div>
@@ -106,17 +106,17 @@ function UserDashboard({
   return (
     <section className="mb-8">
       <SectionHeader icon={<UserIcon className="w-5 h-5" />} title="Profile Settings" />
-      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
+      <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm p-6">
         <form onSubmit={handleSave} className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
           <div className="flex-1 w-full">
-            <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+            <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
               Display Name
             </label>
             <input
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+              className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
             />
           </div>
           <button
@@ -241,8 +241,8 @@ function WriterDashboard({ userId }: { userId: string }) {
       {/* API Keys Section */}
       <section className="mb-8">
         <SectionHeader icon={<Key className="w-5 h-5" />} title="API Keys" />
-        <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
-          <p className="font-sans text-sm text-stone-500 mb-4">
+        <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm p-6">
+          <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mb-4">
             Use your API keys to programmatically manage stories and weather via the REST API.
           </p>
 
@@ -252,7 +252,7 @@ function WriterDashboard({ userId }: { userId: string }) {
                 Your new API key (copy it now — you won't see it again):
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 px-3 py-2 rounded bg-white border border-stone-200 font-mono text-xs text-stone-800 break-all">
+                <code className="flex-1 px-3 py-2 rounded bg-white dark:bg-stone-800 border border-stone-200 font-mono text-xs text-stone-800 break-all">
                   {newKey}
                 </code>
                 <button
@@ -263,7 +263,7 @@ function WriterDashboard({ userId }: { userId: string }) {
                 </button>
                 <button
                   onClick={() => setNewKey(null)}
-                  className="p-2 rounded-lg bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors flex-shrink-0"
+                  className="p-2 rounded-lg bg-stone-200 text-stone-600 hover:bg-stone-300 dark:bg-stone-600 transition-colors flex-shrink-0"
                 >
                   <EyeOff className="w-4 h-4" />
                 </button>
@@ -276,41 +276,41 @@ function WriterDashboard({ userId }: { userId: string }) {
           ) : apiKeys.length === 0 ? (
             <div className="py-8 text-center">
               <Key className="w-10 h-10 text-stone-300 mx-auto mb-2" />
-              <p className="font-sans text-sm text-stone-400">No API keys yet</p>
+              <p className="font-sans text-sm text-stone-400 dark:text-stone-500 dark:text-stone-400">No API keys yet</p>
             </div>
           ) : (
             <div className="space-y-3 mb-6">
               {apiKeys.map((key) => (
                 <div
                   key={key.id}
-                  className="flex items-center justify-between p-4 rounded-lg bg-stone-50 border border-stone-200"
+                  className="flex items-center justify-between p-4 rounded-lg bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-sans text-sm font-bold text-stone-800">
+                      <span className="font-sans text-sm font-bold text-stone-800 dark:text-stone-100">
                         {key.name}
                       </span>
                       {key.last_used_at && (
-                        <span className="font-sans text-xs text-stone-400">
+                        <span className="font-sans text-xs text-stone-400 dark:text-stone-500 dark:text-stone-400">
                           Last used {new Date(key.last_used_at).toLocaleDateString()}
                         </span>
                       )}
                     </div>
-                    <code className="font-mono text-xs text-stone-500 mt-1 block">
+                    <code className="font-mono text-xs text-stone-500 dark:text-stone-400 mt-1 block">
                       {key.key_prefix}…
                     </code>
                   </div>
                   <div className="flex items-center gap-1 ml-3 flex-shrink-0">
                     <button
                       onClick={() => handleRerollKey(key.id)}
-                      className="p-2 rounded-lg text-stone-400 hover:text-primary-700 hover:bg-primary-50 transition-colors"
+                      className="p-2 rounded-lg text-stone-400 dark:text-stone-500 hover:text-primary-700 dark:hover:text-primary-400 hover:bg-primary-50 dark:bg-primary-900/30 transition-colors"
                       title="Reroll key"
                     >
                       <RefreshCw className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDeleteKey(key.id)}
-                      className="p-2 rounded-lg text-stone-400 hover:text-error-600 hover:bg-error-50 transition-colors"
+                      className="p-2 rounded-lg text-stone-400 hover:text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 transition-colors"
                       title="Delete key"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -323,7 +323,7 @@ function WriterDashboard({ userId }: { userId: string }) {
 
           <form onSubmit={handleCreateKey} className="flex gap-3 items-end">
             <div className="flex-1">
-              <label className="block font-sans text-sm font-semibold text-stone-700 mb-1.5">
+              <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
                 New API Key Name
               </label>
               <input
@@ -331,7 +331,7 @@ function WriterDashboard({ userId }: { userId: string }) {
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
                 placeholder="e.g. Production Writer Bot"
-                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
               />
             </div>
             <button
@@ -403,17 +403,17 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
           <SectionHeader icon={<FileText className="w-5 h-5" />} title="Recent Stories" />
           <Link
             to="/stories"
-            className="font-sans text-sm font-bold text-primary-700 hover:text-primary-800 flex items-center gap-1.5"
+            className="font-sans text-sm font-bold text-primary-700 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 flex items-center gap-1.5"
           >
             Manage Stories
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
+        <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm p-6">
           {loadingStories ? (
             <div className="h-16 rounded-lg shimmer" />
           ) : stories.length === 0 ? (
-            <p className="font-sans text-sm text-stone-400 py-4 text-center">
+            <p className="font-sans text-sm text-stone-400 dark:text-stone-500 py-4 text-center">
               No stories published yet.
             </p>
           ) : (
@@ -421,10 +421,10 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
               {stories.map((story) => (
                 <div
                   key={story.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-stone-50 border border-stone-200"
+                  className="flex items-center justify-between p-3 rounded-lg bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700"
                 >
                   <div className="min-w-0 flex-1">
-                    <h4 className="font-sans text-sm font-bold text-stone-800 truncate">
+                    <h4 className="font-sans text-sm font-bold text-stone-800 dark:text-stone-100 truncate">
                       {story.title}
                     </h4>
                     <div className="flex items-center gap-2 mt-1">
@@ -436,7 +436,7 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
                           Headline
                         </span>
                       )}
-                      <span className="font-sans text-xs text-stone-400">
+                      <span className="font-sans text-xs text-stone-400 dark:text-stone-500 dark:text-stone-400">
                         {new Date(story.created_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -594,14 +594,14 @@ function WeatherManagement() {
   return (
     <section className="mb-8">
       <SectionHeader icon={<Cloud className="w-5 h-5" />} title="Weather Management" />
-      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
-        <p className="font-sans text-sm text-stone-500 mb-4">
+      <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm p-6">
+        <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mb-4">
           Edit the weather forecast. Changes appear on the homepage immediately.
           Sunrise and sunset come from the weather source and are not edited here.
         </p>
 
         {DEFERRED_FIELDS_PENDING && (
-          <p className="font-sans text-sm text-stone-500 mb-4 border-l-2 border-stone-300 pl-3">
+          <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mb-4 border-l-2 border-stone-300 pl-3">
             Precipitation chance and the wind detail columns are read-only for now. They
             need a database migration that has not been applied yet, so saving them would
             fail. Everything else on this form saves normally.
@@ -611,7 +611,7 @@ function WeatherManagement() {
         {loading ? (
           <div className="h-32 rounded-lg shimmer" />
         ) : forecasts.length === 0 ? (
-          <p className="font-sans text-sm text-stone-400 py-4 text-center">
+          <p className="font-sans text-sm text-stone-400 dark:text-stone-500 py-4 text-center">
             No weather data available.
           </p>
         ) : (
@@ -619,25 +619,25 @@ function WeatherManagement() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-stone-200">
-                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Date</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">High</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Low</th>
-                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Condition</th>
-                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Icon</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Humidity</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Wind mph</th>
-                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Wind dir</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Wind min</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Wind max</th>
-                    <th className="py-2 px-2 font-sans font-bold text-stone-600">Precip %</th>
-                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Sunrise</th>
-                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600">Sunset</th>
+                  <tr className="border-b border-stone-200 dark:border-stone-700">
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Date</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">High</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Low</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Condition</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Icon</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Humidity</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Wind mph</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Wind dir</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Wind min</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Wind max</th>
+                    <th className="py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Precip %</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Sunrise</th>
+                    <th className="text-left py-2 px-2 font-sans font-bold text-stone-600 dark:text-stone-300">Sunset</th>
                   </tr>
                 </thead>
                 <tbody>
                   {forecasts.map((f) => (
-                    <tr key={f.id} className="border-b border-stone-100">
+                    <tr key={f.id} className="border-b border-stone-100 dark:border-stone-800">
                       <td className="py-2 px-2 font-sans text-stone-700 whitespace-nowrap">
                         {new Date(f.forecast_date + 'T00:00:00').toLocaleDateString('en-US', {
                           weekday: 'short',
@@ -650,7 +650,7 @@ function WeatherManagement() {
                           type="number"
                           value={f.high_temp}
                           onChange={(e) => updateField(f.id, 'high_temp', parseInt(e.target.value) || 0)}
-                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
                       <td className="py-2 px-2">
@@ -658,14 +658,14 @@ function WeatherManagement() {
                           type="number"
                           value={f.low_temp}
                           onChange={(e) => updateField(f.id, 'low_temp', parseInt(e.target.value) || 0)}
-                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
                       <td className="py-2 px-2">
                         <select
                           value={f.condition}
                           onChange={(e) => updateField(f.id, 'condition', e.target.value)}
-                          className="px-2 py-1 rounded border border-stone-300 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
                         >
                           {CONDITIONS.map((c) => (
                             <option key={c} value={c}>{c}</option>
@@ -676,7 +676,7 @@ function WeatherManagement() {
                         <select
                           value={f.icon}
                           onChange={(e) => updateField(f.id, 'icon', e.target.value)}
-                          className="px-2 py-1 rounded border border-stone-300 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
                         >
                           {ICONS.map((i) => (
                             <option key={i} value={i}>{i}</option>
@@ -688,7 +688,7 @@ function WeatherManagement() {
                           type="number"
                           value={f.humidity}
                           onChange={(e) => updateField(f.id, 'humidity', parseInt(e.target.value) || 0)}
-                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
                       <td className="py-2 px-2">
@@ -696,7 +696,7 @@ function WeatherManagement() {
                           type="number"
                           value={f.wind_speed}
                           onChange={(e) => updateField(f.id, 'wind_speed', parseInt(e.target.value) || 0)}
-                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
                       <td className="py-2 px-2">
@@ -708,7 +708,7 @@ function WeatherManagement() {
                           onChange={(e) =>
                             updateField(f.id, 'wind_direction', e.target.value || null)
                           }
-                          className="px-2 py-1 rounded border border-stone-300 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
                         >
                           <option value="">—</option>
                           {WIND_DIRS.map((d) => (
@@ -725,7 +725,7 @@ function WeatherManagement() {
                           onChange={(e) =>
                             updateField(f.id, 'wind_min', parseOptionalInt(e.target.value))
                           }
-                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
                       <td className="py-2 px-2">
@@ -737,7 +737,7 @@ function WeatherManagement() {
                           onChange={(e) =>
                             updateField(f.id, 'wind_max', parseOptionalInt(e.target.value))
                           }
-                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
                       <td className="py-2 px-2">
@@ -754,7 +754,7 @@ function WeatherManagement() {
                               parseOptionalInt(e.target.value)
                             )
                           }
-                          className="w-16 px-2 py-1 rounded border border-stone-300 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          className="w-16 px-2 py-1 rounded border border-stone-300 dark:border-stone-600 font-sans text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
                       </td>
                       <td className="py-2 px-2 font-sans text-sm text-stone-500 whitespace-nowrap">
@@ -831,8 +831,8 @@ function AdminDashboard() {
   return (
     <section className="mb-8">
       <SectionHeader icon={<Shield className="w-5 h-5" />} title="Admin — User Management" />
-      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
-        <p className="font-sans text-sm text-stone-500 mb-4">
+      <div className="bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm p-6">
+        <p className="font-sans text-sm text-stone-500 dark:text-stone-400 mb-4">
           Manage user roles and permissions across the platform.
         </p>
 
@@ -841,25 +841,25 @@ function AdminDashboard() {
         ) : users.length === 0 ? (
           <div className="py-8 text-center">
             <Users className="w-10 h-10 text-stone-300 mx-auto mb-2" />
-            <p className="font-sans text-sm text-stone-400">No users found</p>
+            <p className="font-sans text-sm text-stone-400 dark:text-stone-500 dark:text-stone-400">No users found</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-stone-200">
-                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600">User</th>
-                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600">Email</th>
-                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600">Joined</th>
-                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600">Role</th>
+                <tr className="border-b border-stone-200 dark:border-stone-700">
+                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600 dark:text-stone-300">User</th>
+                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600 dark:text-stone-300">Email</th>
+                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600 dark:text-stone-300">Joined</th>
+                  <th className="text-left py-2 px-3 font-sans font-bold text-stone-600 dark:text-stone-300">Role</th>
                 </tr>
               </thead>
               <tbody>
                 {users.map((user) => (
-                  <tr key={user.id} className="border-b border-stone-100">
+                  <tr key={user.id} className="border-b border-stone-100 dark:border-stone-800">
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-sans font-bold text-sm">
+                        <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 flex items-center justify-center font-sans font-bold text-sm">
                           {(user.display_name || user.email).charAt(0).toUpperCase()}
                         </div>
                         <span className="font-sans font-semibold text-stone-800">
@@ -867,7 +867,7 @@ function AdminDashboard() {
                         </span>
                       </div>
                     </td>
-                    <td className="py-3 px-3 font-sans text-stone-500">{user.email}</td>
+                    <td className="py-3 px-3 font-sans text-stone-500 dark:text-stone-400">{user.email}</td>
                     <td className="py-3 px-3 font-sans text-stone-400 whitespace-nowrap">
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
@@ -876,7 +876,7 @@ function AdminDashboard() {
                         value={user.role}
                         disabled={updating === user.id}
                         onChange={(e) => handleRoleChange(user.id, e.target.value as UserRole)}
-                        className="px-3 py-1.5 rounded-lg border border-stone-300 font-sans text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                        className="px-3 py-1.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
                       >
                         <option value="user">User</option>
                         <option value="writer">Writer</option>
@@ -900,10 +900,10 @@ function AdminDashboard() {
 function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
     <div className="flex items-center gap-2 mb-4">
-      <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-700 flex items-center justify-center">
+      <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 flex items-center justify-center">
         {icon}
       </div>
-      <h2 className="font-serif text-xl font-bold text-stone-900">{title}</h2>
+      <h2 className="font-serif text-xl font-bold text-stone-900 dark:text-stone-50">{title}</h2>
     </div>
   );
 }

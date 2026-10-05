@@ -57,6 +57,11 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   };
 
   useEffect(() => {
+    // A write error belongs to the story that produced it. Carried to the next story
+    // it rendered a stale banner above this one's own message, which is the
+    // contradiction the closed-state copy exists to avoid. Found in review on
+    // BEL-93, pre-existing rather than introduced there.
+    setError(null);
     loadComments();
     loadDeletableIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,10 +108,10 @@ export function CommentSection({ storyId }: CommentSectionProps) {
   const banner = error ?? listError;
 
   return (
-    <section className="mt-12 border-t border-stone-200 pt-8">
+    <section className="mt-12 border-t border-stone-200 dark:border-stone-700 pt-8">
       <div className="flex items-center gap-2 mb-6">
-        <MessageCircle className="w-6 h-6 text-primary-700" />
-        <h3 className="font-serif text-2xl font-bold text-stone-900">
+        <MessageCircle className="w-6 h-6 text-primary-700 dark:text-primary-400" />
+        <h3 className="font-serif text-2xl font-bold text-stone-900 dark:text-stone-50">
           {/* The count is an assertion about a query that succeeded. While it is
               loading or failed, comments.length is 0 because nothing came back, not
               because the story has none, so no number is shown. */}
@@ -121,8 +126,8 @@ export function CommentSection({ storyId }: CommentSectionProps) {
       )}
 
       {listFailed && !listError ? (
-        <div className="mb-8 p-6 rounded-xl bg-stone-100 border border-stone-200 text-center">
-          <p className="font-sans text-sm text-stone-600">
+        <div className="mb-8 p-6 rounded-xl bg-stone-100 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 text-center">
+          <p className="font-sans text-sm text-stone-600 dark:text-stone-400">
             Comments are unavailable right now. Please try again later.
           </p>
         </div>
@@ -132,7 +137,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
             <div className="w-8 h-8 rounded-full bg-primary-600 text-white flex items-center justify-center font-sans font-bold text-sm">
               {(profile?.display_name || profile?.email || '?').charAt(0).toUpperCase()}
             </div>
-            <span className="font-sans text-sm font-semibold text-stone-700">
+            <span className="font-sans text-sm font-semibold text-stone-700 dark:text-stone-200">
               {profile?.display_name || profile?.email}
             </span>
           </div>
@@ -141,7 +146,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
             onChange={(e) => setBody(e.target.value)}
             placeholder="Share your thoughts..."
             rows={3}
-            className="w-full px-4 py-3 rounded-lg border border-stone-300 font-sans text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none transition-all"
+            className="w-full px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm text-stone-900 dark:text-stone-100 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none transition-all"
           />
           <div className="flex justify-end mt-2">
             <button
@@ -159,8 +164,8 @@ export function CommentSection({ storyId }: CommentSectionProps) {
           </div>
         </form>
       ) : (
-        <div className="mb-8 p-6 rounded-xl bg-stone-100 border border-stone-200 text-center">
-          <p className="font-sans text-sm text-stone-600">
+        <div className="mb-8 p-6 rounded-xl bg-stone-100 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 text-center">
+          <p className="font-sans text-sm text-stone-600 dark:text-stone-400">
             Sign in to join the conversation and share your thoughts on this story.
           </p>
         </div>
@@ -173,7 +178,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
           ))}
         </div>
       ) : comments.length === 0 ? (
-        <p className="font-sans text-sm text-stone-400 text-center py-8">
+        <p className="font-sans text-sm text-stone-400 dark:text-stone-500 text-center py-8">
           No comments yet. Be the first to share your thoughts.
         </p>
       ) : (
@@ -181,18 +186,18 @@ export function CommentSection({ storyId }: CommentSectionProps) {
           {comments.map((comment) => (
             <div
               key={comment.id}
-              className="p-4 rounded-lg bg-white border border-stone-200 animate-fade-in-up"
+              className="p-4 rounded-lg bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 animate-fade-in-up"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-stone-300 text-stone-600 flex items-center justify-center font-sans font-bold text-sm">
+                  <div className="w-8 h-8 rounded-full bg-stone-300 dark:bg-stone-700 text-stone-600 dark:text-stone-300 flex items-center justify-center font-sans font-bold text-sm">
                     {(comment.display_name || '?').charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <span className="font-sans text-sm font-semibold text-stone-800">
+                    <span className="font-sans text-sm font-semibold text-stone-800 dark:text-stone-200">
                       {comment.display_name || 'Unknown'}
                     </span>
-                    <span className="font-sans text-xs text-stone-400 ml-2">
+                    <span className="font-sans text-xs text-stone-400 dark:text-stone-500 ml-2">
                       {new Date(comment.created_at).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
@@ -212,7 +217,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
                   </button>
                 )}
               </div>
-              <p className="font-sans text-sm text-stone-700 leading-relaxed">
+              <p className="font-sans text-sm text-stone-700 dark:text-stone-300 leading-relaxed">
                 {comment.body}
               </p>
             </div>

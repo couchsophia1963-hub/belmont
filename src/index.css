@@ -21,7 +21,7 @@
 
   body {
     font-family: 'Source Sans 3', system-ui, sans-serif;
-    @apply bg-stone-50 text-stone-900;
+    @apply bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100;
   }
 
   h1, h2, h3, h4, h5 {
@@ -31,10 +31,10 @@
 
 @layer components {
   .prose-news p {
-    @apply text-stone-700 leading-relaxed mb-5 text-lg;
+    @apply text-stone-700 dark:text-stone-300 leading-relaxed mb-5 text-lg;
   }
   .prose-news p:first-child::first-letter {
-    @apply text-5xl font-black float-left mr-2 mt-1 leading-none text-primary-700;
+    @apply text-5xl font-black float-left mr-2 mt-1 leading-none text-primary-700 dark:text-primary-400;
     font-family: 'Playfair Display', Georgia, serif;
   }
 }
@@ -78,4 +78,8 @@
   background: linear-gradient(90deg, #f0f0f0 0%, #e0e0e0 50%, #f0f0f0 100%);
   background-size: 1000px 100%;
   animation: shimmer 2s infinite;
+}
+
+.dark .shimmer {
+  background: linear-gradient(90deg, #1c1917 0%, #292524 50%, #1c1917 100%);
 }

@@ -78,10 +78,10 @@ export function StoryDetailPage() {
   if (error || !story) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 text-center">
-        <p className="font-sans text-lg text-stone-600">{error || 'Story not found'}</p>
+        <p className="font-sans text-lg text-stone-600 dark:text-stone-400">{error || 'Story not found'}</p>
         <Link
           to="/"
-          className="inline-flex items-center gap-2 mt-4 font-sans text-sm font-bold text-primary-700 hover:underline"
+          className="inline-flex items-center gap-2 mt-4 font-sans text-sm font-bold text-primary-700 dark:text-primary-400 hover:underline"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Home
         </Link>
@@ -105,7 +105,7 @@ export function StoryDetailPage() {
     <article className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
       <Link
         to="/"
-        className="inline-flex items-center gap-1.5 font-sans text-sm font-semibold text-primary-700 hover:underline mb-6"
+        className="inline-flex items-center gap-1.5 font-sans text-sm font-semibold text-primary-700 dark:text-primary-400 hover:underline mb-6"
       >
         <ArrowLeft className="w-4 h-4" /> Back to Home
       </Link>
@@ -121,26 +121,26 @@ export function StoryDetailPage() {
           </span>
         )}
         {story.locked && (
-          <span className="inline-flex items-center gap-1 font-sans text-xs font-bold uppercase tracking-wider text-primary-700 bg-primary-50 px-3 py-1 rounded-full border border-primary-200">
+          <span className="inline-flex items-center gap-1 font-sans text-xs font-bold uppercase tracking-wider text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/40 px-3 py-1 rounded-full border border-primary-200 dark:border-primary-700">
             <Lock className="w-3 h-3" />
             Locked
           </span>
         )}
       </div>
 
-      <h1 className="font-serif text-3xl sm:text-5xl font-black text-stone-900 leading-tight mb-4">
+      <h1 className="font-serif text-3xl sm:text-5xl font-black text-stone-900 dark:text-stone-50 leading-tight mb-4">
         {story.title}
       </h1>
 
-      <p className="font-sans text-lg text-stone-600 leading-relaxed mb-6">
+      <p className="font-sans text-lg text-stone-600 dark:text-stone-400 leading-relaxed mb-6">
         {story.excerpt}
       </p>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-6 mb-8 border-b border-stone-200">
-        <div className="flex flex-wrap items-center gap-4 font-sans text-sm text-stone-500">
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-6 mb-8 border-b border-stone-200 dark:border-stone-700">
+        <div className="flex flex-wrap items-center gap-4 font-sans text-sm text-stone-500 dark:text-stone-400">
           {story.author?.display_name && (
             <span>
-              By <strong className="text-stone-700">{story.author.display_name}</strong>
+              By <strong className="text-stone-700 dark:text-stone-200">{story.author.display_name}</strong>
             </span>
           )}
           <span className="flex items-center gap-1.5">
@@ -171,10 +171,10 @@ export function StoryDetailPage() {
         ))}
       </div>
 
-      <div className="mt-8 pt-6 border-t border-stone-200 flex items-center justify-between">
+      <div className="mt-8 pt-6 border-t border-stone-200 dark:border-stone-700 flex items-center justify-between">
         <Link
           to="/"
-          className="inline-flex items-center gap-1.5 font-sans text-sm font-semibold text-primary-700 hover:underline"
+          className="inline-flex items-center gap-1.5 font-sans text-sm font-semibold text-primary-700 dark:text-primary-400 hover:underline"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Home
         </Link>
