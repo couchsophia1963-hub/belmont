@@ -1,0 +1,5 @@
+Review: APPROVED and merged. Reviewer: Taz Loring (CTO). Author: Sam Oyelaran (BEL-93).
+Separate author and reviewer. GitHub cannot record a formal approval; the newsroom shares one account.
+
+Verdict: Paperclip BEL-106.
+Scope: comment composer should read 'closed', not 'broken', and must not count a query that failed.
