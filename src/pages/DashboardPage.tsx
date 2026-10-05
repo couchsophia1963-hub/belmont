@@ -436,6 +436,7 @@ function WeatherManagement() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const loadWeather = useCallback(async () => {
     const { data } = await supabase
@@ -470,13 +471,15 @@ function WeatherManagement() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
+    const failures: string[] = [];
     for (const f of forecasts) {
       // `sunrise` and `sunset` are intentionally absent. They are provider
       // values, not hand-edited ones, and they are written by the publish and
       // backfill paths only. Everything below IS in this payload on purpose:
       // a column left out of an update() is not preserved here, it is a whole
       // column this form overwrites with whatever it holds.
-      await supabase
+      const { error } = await supabase
         .from('weather_forecasts')
         .update({
           high_temp: f.high_temp,
@@ -491,8 +494,23 @@ function WeatherManagement() {
           wind_max: f.wind_max,
         })
         .eq('id', f.id);
+      // Every other write in this dashboard already checks its error. This one
+      // did not, so every row could fail and the button still said "Saved!" --
+      // an editor would leave believing the forecast was published. The most
+      // likely cause is the payload naming a column the database does not have
+      // yet, which is exactly what happens if this frontend is deployed before
+      // 20261005140000_weather_forecasts_deferred_fields.sql is applied.
+      if (error) failures.push(`${f.forecast_date}: ${error.message}`);
     }
     setSaving(false);
+    if (failures.length > 0) {
+      // Report the failure instead of claiming success. The Postgres message
+      // is diagnostic on purpose: PGRST204 names the missing column.
+      setSaveError(
+        `${failures.length} of ${forecasts.length} row(s) did not save. First error — ${failures[0]}`
+      );
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -670,14 +688,22 @@ function WeatherManagement() {
                 </tbody>
               </table>
             </div>
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex flex-col items-end gap-2">
+              {saveError && (
+                <p
+                  role="alert"
+                  className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-sans text-sm text-red-700"
+                >
+                  {saveError}
+                </p>
+              )}
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="px-5 py-2.5 rounded-lg font-sans text-sm font-bold text-white bg-primary-700 hover:bg-primary-800 disabled:opacity-50 transition-colors flex items-center gap-2"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : null}
-                {saved ? 'Saved!' : 'Save Weather'}
+                {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Weather'}
               </button>
             </div>
           </>
