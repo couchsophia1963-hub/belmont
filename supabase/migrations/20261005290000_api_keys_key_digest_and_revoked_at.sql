@@ -1,6 +1,32 @@
 /*
 # api_keys: store a digest beside the credential, revoke instead of deleting
 
+## 0. This file is edited in place, and that is only safe until it is applied
+
+Read this before changing anything in it.
+
+A precheck and a census are worth nothing once the file has run. Everything in sections 5 and 6
+below -- the column census, the grant precheck, the `service_role` check -- executes at apply
+time. If this file has already been applied to a database, editing it changes nothing there: the
+ledger has recorded the version key, the file is not re-run, and the checks are inert forever.
+
+**So this file is amendable only while nothing has applied it.** That is true today, and the
+reason is specific rather than reassuring:
+
+  * Nothing in this repository applies migrations. `ci.yml` runs typecheck, lint, the harnesses
+    and build; `deploy-pages.yml` builds and publishes the site. Neither has a `supabase db push`,
+    a migration step, or a database URL. That is the whole basis -- not "agents cannot reach the
+    database", which is a different claim with a different expiry date and one that would stop
+    being true the moment an operator got a console.
+
+  * **The moment a migration runner is added to this repository, amend-in-place stops being safe
+    and stops being noticeable.** A new runner would apply this file as-is, skipping every edit
+    made here afterwards, and the prechecks would silently never run. If you are adding one: stop,
+    and move the outstanding checks into a later migration instead of editing this one.
+
+Once this file has been applied anywhere, every check that still needs to run belongs in a NEW
+file with a new version key.
+
 ## 1. Purpose
 
 `api_keys.key_hash` is named for a hash and holds nothing of the kind. The base schema's header
@@ -184,8 +210,10 @@ desk key with nothing in either column explaining why. This file's step-5 census
 Use `has_table_privilege`, not `information_schema`, for the same reason given above: the
 `information_schema` privilege views report a grant only where the GRANTOR or the GRANTEE is a
 currently-enabled role, so a role that is neither yields zero rows and the check passes vacuously.
-`has_table_privilege` reads the relation's ACL directly. `20261005300000` section 1 cross-checks both
-roles for this reason.
+`has_table_privilege` reads the relation's ACL directly. `20261005300000` section 1 uses the same
+function for the same reason, but note what it does *not* do: its three calls are all scoped to
+`authenticated`. It cross-checks `information_schema` against the ACL for one role, not two roles.
+This block is the only `service_role` privilege check anywhere in `supabase/`.
 
 If either `*_is_table_level` comes back `false`, **stop and do not apply this file.** The fix is a
 separate migration extending the existing column grants to cover `key_digest` and `revoked_at` for
@@ -576,14 +604,34 @@ BEGIN
   -- GRANTOR OR the GRANTEE is a currently-enabled role, so a role that is neither
   -- yields zero rows and the check passes vacuously. has_table_privilege reads the
   -- relation's ACL directly and has no such filter. See 20261005300000 section 1,
-  -- which cross-checks both roles for the same reason.
+  -- which uses the same function for the same reason. It is scoped to `authenticated`, though: its
+  -- three calls do not cover service_role, so this block is the only service_role privilege check
+  -- in supabase/.
+  --
+  -- Two limits worth knowing, both confirmed by running the block rather than by reading it:
+  --
+  --   * It is a smoke alarm, not a diagnosis. has_table_privilege('role', table, 'SELECT') asks
+  --     about TABLE-level privilege, which a column-scoped grant never confers -- so it is false
+  --     both when the grant is absent and when the grant is column-scoped but covers key_digest
+  --     and the function would work fine. The WARNING text says so and names the
+  --     has_column_privilege call that tells the two apart, rather than asserting a cause it has
+  --     not established.
+  --   * has_table_privilege RAISES 'role "service_role" does not exist' rather than returning
+  --     false. On any Supabase project the role exists. On a self-hosted Postgres that renamed
+  --     it, this block would abort the migration -- which is the correct outcome, because the
+  --     edge function's key would not work anyway -- but it means the file assumes a Supabase
+  --     role layout.
   IF NOT has_table_privilege('service_role', 'public.api_keys', 'SELECT') THEN
     RAISE WARNING
-      'service_role cannot SELECT api_keys. The edge function authenticates and stamps '
-      'last_used_at as service_role (SUPABASE_SERVICE_ROLE_KEY), so it would refuse every '
-      'key once it reads key_digest -- and this precheck, which was scoped to '
-      'authenticated, did not look. Grant SELECT on the table before deploying the '
-      'function that reads the digest. This file does not issue that grant.';
+      'service_role has no TABLE-LEVEL SELECT on api_keys. That is also true when the grant is '
+      'column-scoped, which this predicate cannot distinguish -- has_table_privilege asks about '
+      'table-level privilege, which a column grant never confers. To tell the two apart, run: '
+      'has_column_privilege(''service_role'', ''public.api_keys'', ''key_digest'', ''SELECT''). '
+      'That is false only in the case that actually breaks the function. The edge function '
+      'authenticates and stamps last_used_at as service_role (SUPABASE_SERVICE_ROLE_KEY), so it '
+      'would refuse every key once it reads key_digest -- and this precheck, which was scoped to '
+      'authenticated, did not look. Granting SELECT at table level resolves both cases. This file '
+      'does not issue that grant.';
   ELSE
     RAISE NOTICE 'api_keys: service_role holds SELECT (BYPASSRLS role, reads key_digest).';
   END IF;
