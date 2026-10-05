@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider } from '@/lib/auth';
 import { Header, Footer } from '@/components/Layout';
 import { HomePage } from '@/pages/HomePage';
@@ -7,6 +8,34 @@ import { AuthPage } from '@/pages/AuthPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { StoryManagerPage } from '@/pages/StoryManagerPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
+import { legacyHashRouteTarget } from '@/lib/legacyHashRoute';
+
+/**
+ * Rewrites a stranded `#/story/<slug>` address to `/story/<slug>` (BEL-142).
+ *
+ * `BrowserRouter` (BEL-92) reads the path and ignores the hash, so every link
+ * the old `HashRouter` app handed out mounted on `/` and rendered the
+ * homepage with a 200. The decision is in `legacyHashRouteTarget`; this only
+ * applies it.
+ *
+ * `replace` rather than `push`, because the reader never chose to be on the
+ * homepage. Pushing would put the homepage in their history and Back would
+ * appear to do nothing.
+ *
+ * After the rewrite the hash is gone, so the target becomes `null` and the
+ * effect stops. That is what keeps this from looping.
+ */
+function LegacyHashRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const target = legacyHashRouteTarget(location.hash, location.pathname, location.search);
+
+  useEffect(() => {
+    if (target) navigate(target, { replace: true });
+  }, [target, navigate]);
+
+  return null;
+}
 
 function App() {
   return (
@@ -19,6 +48,7 @@ function App() {
           The cost of BrowserRouter is that the host must serve index.html for
           unknown paths; this one does, verified 2026-10-05. */}
       <BrowserRouter>
+        <LegacyHashRedirect />
         <div className="min-h-screen flex flex-col bg-stone-50">
           <Header />
           <main className="flex-1">
