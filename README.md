@@ -92,6 +92,16 @@ That is the correct outcome and it is earlier and more specific than the build
 failing: it names the missing variables instead of shipping a site that cannot
 read.
 
+For a local build, copy `.env.example` to `.env` and fill in the two names. The
+gate then passes and `npm run build` proceeds. This is a deliberate cost: the
+alternative is a build that succeeds and produces an artifact nobody can use.
+
+`npm run dev` is unaffected — there is no `predev`, so Vite starts either way. A
+missing pair there is a client-side throw at module load, which means the dev
+server answers `200` with the page shell and the error only appears in the
+browser console. Worth knowing when triaging: a `200` from `localhost` says
+nothing about the env.
+
 ### Two repos claim the live host
 
 `EasySchedule/belmont-news` states in its README that it is "published hourly
