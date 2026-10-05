@@ -157,7 +157,11 @@ function StoryList({
     setActing(true);
     setActionError(null);
     const story = stories.find((s) => s.id === id);
-    if (!story) return;
+    if (!story) {
+      setActing(false);
+      setActionTarget(null);
+      return;
+    }
 
     if (story.locked) {
       setActionError('This story is locked and cannot be deleted. Unlock it first.');
@@ -166,15 +170,26 @@ function StoryList({
       return;
     }
 
-    const { error } = await supabase.from('stories').delete().eq('id', id);
+    // `.select('id')` makes this a DELETE ... RETURNING. A row the policy's
+    // USING clause filters out is suppressed silently: Postgres reports no
+    // error, and without RETURNING PostgREST answers 204, which is
+    // indistinguishable from a real delete. An empty array is the proof that
+    // nothing was deleted, and it holds whatever status code came back.
+    const { data: deleted, error } = await supabase
+      .from('stories')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
     setActing(false);
     setActionTarget(null);
+
     if (error) {
-      if (error.message.includes('row-level security')) {
-        setActionError('Delete blocked by security policy. The story may be locked.');
-      } else {
-        setActionError('Failed to delete story: ' + error.message);
-      }
+      setActionError('Failed to delete story: ' + error.message);
+      return;
+    }
+    if (!deleted || deleted.length === 0) {
+      setActionError('Delete was refused. Nothing was deleted. Unlock or unpublish the story first.');
       return;
     }
     await loadStories();
