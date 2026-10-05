@@ -194,15 +194,26 @@ commit;
 --   default) and already cover the six new columns. Stop here. Nothing to do.
 --
 -- ROWS for `authenticated`      -> column-scoped. Extend in this same change,
---   not as a follow-up:
+--   not as a follow-up. Grant SELECT as well as the writes, or the admin panel
+--   half-works in a way that looks fine:
 --
+--   -- grant select on public.weather_forecasts to authenticated, service_role;
 --   -- grant insert, update, delete on public.weather_forecasts
 --   --   to authenticated, service_role;
+--
+-- Why `select` is not optional here. PostgREST expands `select=*` to only the
+-- columns the calling role may SELECT, and the admin panel loads the table with
+-- `.select('*')`. Give `authenticated` the writes but not the read and every
+-- save succeeds while the four fields read back empty: the form renders
+-- `f.precipitation_chance ?? ''` as a blank input, so an editor types a value,
+-- presses Save, sees no error, and loses it on the next load. The write-only
+-- grant turns DoD #5 into a test that passes while showing nothing.
 --
 -- Left commented on purpose. Which privileges that role actually needs is a
 -- person's call made after reading the check, not a migration's, and the
 -- migration is written to run unattended. Note that column_privileges reports
--- column-level grants only: a row here is positive proof of column scoping.
+-- column-level grants only: a row here is positive proof of column scoping, and
+-- the absence of a SELECT row is what makes the read-back above break.
 --
 -- `weather_public_read` is `TO anon, authenticated USING (true)`, and the
 -- homepage strip reads these columns as anon. So whatever the answer to the
