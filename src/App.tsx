@@ -20,8 +20,24 @@ function App() {
           unknown paths; this one does, verified 2026-10-05. */}
       <BrowserRouter>
         <div className="min-h-screen flex flex-col bg-stone-50">
+          {/* HashRouter reads the URL fragment as the route, so a plain
+              `#main-content` href would route to `/main-content` and land on
+              the catch-all home page instead of skipping the nav. Focusing
+              the target by hand and cancelling the default keeps the hash on
+              the current route. `tabIndex={-1}` below is what makes that
+              target focusable. */}
+          <a
+            href="#main-content"
+            className="skip-link"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById('main-content')?.focus();
+            }}
+          >
+            Skip to main content
+          </a>
           <Header />
-          <main className="flex-1">
+          <main id="main-content" tabIndex={-1} className="flex-1">
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/story/:slug" element={<StoryDetailPage />} />

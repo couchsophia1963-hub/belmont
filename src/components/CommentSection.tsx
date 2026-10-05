@@ -96,9 +96,11 @@ export function CommentSection({ storyId }: CommentSectionProps) {
     <section className="mt-12 border-t border-stone-200 pt-8">
       <div className="flex items-center gap-2 mb-6">
         <MessageCircle className="w-6 h-6 text-primary-700" />
-        <h3 className="font-serif text-2xl font-bold text-stone-900">
+        {/* Level 2: the story title above is the page's level 1, so this is
+            the next level down. As an <h3> it skipped a level (BEL-95). */}
+        <h2 className="font-serif text-2xl font-bold text-stone-900">
           Comments ({comments.length})
-        </h3>
+        </h2>
       </div>
 
       {error && (
