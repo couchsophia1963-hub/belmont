@@ -82,6 +82,19 @@
      is NULL here too, which is why auth.uid() NULL is not by itself evidence of an
      admin.
 
+   What this trigger does NOT cover, stated so no one over-reads it:
+
+   - INSERT. This is a BEFORE UPDATE trigger. `stories_writer_insert` has a WITH CHECK on
+     the caller's role only, and a WITH CHECK has no OLD to compare against and no
+     column-scoped form, so a writer can still INSERT a row born with locked = true.
+     Because `stories_admin_delete` requires locked = false, such a row cannot be deleted
+     by anyone, including an admin, until an admin unlocks it. That is a nuisance and a
+     cleanup chore, not an escalation: it cannot lock or unpublish anyone else's story,
+     which is what BEL-213 reported. Closing it needs a BEFORE INSERT trigger, which is
+     a separate change and not in this file.
+   - A writer may still take an UNLOCKED story offline, and may publish a locked story.
+     Rule (b) guards only the locked-and-published to unpublished direction.
+
 5. Grants: read before applying, and this file changes none
    Rule 3 applies. Run this first:
 
@@ -119,6 +132,24 @@
    Database first. Apply 20261005123424_20261005180000_story_locking.sql, then this file,
    then any frontend. The guard references stories.locked, so it must come after the
    column exists; the reverse order fails and rolls back cleanly.
+
+   This file's version is 20261005200000, not 20261005190000. It was first written as
+   20261005190000 and renamed during review of BEL-217, because
+   20261005190000_profiles_role_not_self_assignable.sql (BEL-224) already holds that
+   version on main. Supabase keys the migration ledger on the leading timestamp, not the
+   filename, so two files sharing a version collide in supabase_migrations
+   .schema_migrations. The later-named of the pair is then treated as already applied
+   and `supabase db push` skips it silently. That is the exact failure this newsroom
+   cannot have: a trigger that never installs while the ledger says it did. The rename
+   is safe because this file has never been applied anywhere — see section 8.
+
+   Security dependency, and it is a real one. This trigger decides admin-ness from
+   profiles.role. If BEL-224's profiles trigger is not applied, a writer can first run
+   `update profiles set role = 'admin' where id = auth.uid()` and then pass this guard
+   freely, so the guard would be sound in form and worthless in effect. Applying
+   20261005190000_profiles_role_not_self_assignable.sql first is therefore required for
+   this trigger to mean anything, not merely preferred. Migration order gives it for
+   free, because that version sorts first. Do not cherry-pick this file alone.
 
    There is no function deploy in this change. The edge function is unchanged: it already
    refused a non-admin lock and unlock, and it keeps working because service_role passes

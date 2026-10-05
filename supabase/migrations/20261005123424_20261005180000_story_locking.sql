@@ -42,7 +42,7 @@ rather than changes to the shipped behaviour:
 
    Enforcing admin-only on locked is therefore a separate migration with a separate
    name, so it is separately reviewable and separately applied:
-   `20261005190000_stories_lock_column_guard.sql`. Do not read this file as the fix.
+   `20261005200000_stories_lock_column_guard.sql`. Do not read this file as the fix.
 
 4. The DELETE policy and reversibility
    Postgres has no `CREATE OR REPLACE POLICY`, so DROP then CREATE is the only way to
