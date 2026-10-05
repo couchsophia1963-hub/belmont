@@ -181,7 +181,7 @@ function StoryList({
   };
 
   // The database refuses this write for a non-admin on a locked story
-  // (20261005190000_stories_lock_column_guard.sql). Checking here means a writer finds
+  // (20261005200000_stories_lock_column_guard.sql). Checking here means a writer finds
   // out from the button instead of from an error dialog naming a story uuid, and it
   // says who to ask. This is not the control. The trigger is.
   const unpublishBlocked = (story: Story) =>
