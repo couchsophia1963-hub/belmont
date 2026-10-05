@@ -1,4 +1,4 @@
--- api_keys: an owner may UPDATE their own key row (BEL-273, PR #41)
+-- api_keys: an owner may UPDATE their own key row (BEL-273, PR #42)
 --
 -- Refs BEL-273, BEL-282
 --
@@ -32,10 +32,19 @@
 -- file, PR C ships a revoke button that reports success and leaves the key live -- the
 -- precise failure the change exists to remove, arrived at from the other direction.
 --
--- Ordering. This file lands after 20261005200000 (PR #40), which is what adds the
+-- Ordering. This file lands after 20261005290000 (PR #40), which is what adds the
 -- `revoked_at` column this policy is needed to write. It must land before the panel
 -- change that writes `revoked_at` (PR C). It does not depend on the edge function
 -- (PR C) or on the byline work on PR #24.
+--
+-- Version key. This file was 20261005210000 while PR #40's was 20261005200000. PR #40
+-- has since renumbered itself to 20261005290000, above every key in flight, which left
+-- this file sorting *before* the columns it is sequenced behind. Nothing functional
+-- rides on the order -- the only identifier this policy tests is user_id, which the
+-- base schema supplies -- but a file whose own header states a dependency should not
+-- be numbered against it. Renumbered to 20261005300000 so the ledger reads in the order
+-- the comments describe: 290000 digest columns, then 300000 this policy, then 310000
+-- the column drop.
 --
 -- The edge function is unaffected. It authenticates and stamps `last_used_at` through
 -- SUPABASE_SERVICE_ROLE_KEY (supabase/functions/api/index.ts:10-13), and service_role
@@ -97,8 +106,35 @@ BEGIN
       'extending the existing UPDATE grant to table level, then re-apply.', update_columns;
   END IF;
 
+  -- The mirror case: no UPDATE privilege at all. That is not this file's business to fix
+  -- -- a missing grant is fixable out of band, unlike a narrowed one, which is why the case
+  -- above aborts and this one does not. But it ends in the same "looks fixed" state, so it
+  -- is reported loudly rather than passed over in silence.
+  IF NOT has_table_update THEN
+    RAISE WARNING
+      'authenticated holds NO table-level UPDATE on api_keys. This migration will add the '
+      'policy and report success, and every owner UPDATE will still be refused on privilege '
+      'before any policy is consulted. Grant UPDATE on the table before expecting rotation '
+      'to work; this file deliberately does not issue that grant.';
+  END IF;
+
   RAISE NOTICE 'api_keys: authenticated holds table-level UPDATE = %, column-scoped UPDATE = %.',
     has_table_update, has_column_update;
+
+  -- Cross-check with the ACL directly. information_schema.table_privileges and
+  -- column_privileges report a grant only where the GRANTOR OR the GRANTEE is a role
+  -- currently enabled in the session, so a role that is neither sees zero rows and both
+  -- EXISTS above return false -- the check then passes vacuously while its NOTICE reads
+  -- like a result. has_table_privilege reads the relation's ACL and has no such filter.
+  -- Supabase applies migrations as the table owner, so in practice the two agree; this is
+  -- here so the vacuous case is visible instead of silent.
+  IF NOT has_table_privilege('authenticated', 'public.api_keys', 'UPDATE') THEN
+    RAISE WARNING
+      'has_table_privilege() disagrees with information_schema above: authenticated cannot '
+      'UPDATE api_keys through the ACL either. The information_schema read may have been '
+      'vacuous (grantor and grantee both not enabled in this session). Re-check before '
+      'relying on either answer.';
+  END IF;
 END
 $$;
 
@@ -108,16 +144,26 @@ $$;
 -- USING and WITH CHECK are both auth.uid() = user_id, matching api_keys_owner_read,
 -- _insert and _delete.
 --
--- WITH CHECK is not redundant. USING decides which existing rows may be updated; the
--- check decides what the row may become. Without it, an owner could update their own row
--- and set user_id to another profile id, moving the key onto an account they do not
--- control. Every one of the three existing policies that can write carries the same
--- pair, so this is the established shape here rather than a new precaution.
+-- Why both clauses, stated accurately. An earlier draft of this comment claimed that
+-- omitting WITH CHECK would let an owner repoint their key row at another user_id.
+-- That is not what PostgreSQL does. The CREATE POLICY reference is explicit: for
+-- UPDATE, "if only a USING clause is specified, then that clause will be used for
+-- both USING and WITH CHECK cases." Omitting the clause here would impose exactly the
+-- same restriction. So the clause is NOT load-bearing against that hazard, and this
+-- comment does not claim it is.
+--
+-- It is kept because it makes the policy self-describing at the point of definition
+-- rather than relying on the reader knowing the default, and because the precedent on
+-- this table already spells it out: comments_owner_update at
+-- 20261004123918_create_belmont_news_schema.sql:200-203 is the same verb with the same
+-- explicit pair. The other two api_keys policies are not a precedent for it --
+-- api_keys_owner_insert carries only WITH CHECK and api_keys_owner_delete only USING --
+-- so citing them as "the established shape" would have been wrong.
 --
 -- The policy does not constrain which columns may be written. RLS cannot do that. The
 -- consequence is stated plainly rather than left implied: an owner who can UPDATE their
 -- row can write key_hash, and therefore can choose a credential, and the
--- api_keys_fill_key_digest trigger from 20261005200000 recomputes key_digest to match.
+-- api_keys_fill_key_digest trigger from 20261005290000 recomputes key_digest to match.
 -- That is the reroll the panel already offers and the only reason this policy is being
 -- added, so it is not new authority -- it is authority the code has always assumed and
 -- never had. It is also why the panel must stop selecting key_hash (PR C, BEL-282): with
@@ -138,22 +184,42 @@ CREATE POLICY "api_keys_owner_update"
   WITH CHECK (auth.uid() = user_id);
 
 COMMENT ON POLICY "api_keys_owner_update" ON public.api_keys IS
-  'Owner-scoped UPDATE, completing the read/insert/delete set from 20261004123918. Required by handleRerollKey and by the revoked_at write that replaces deletion (BEL-273 PR C). WITH CHECK is what stops an owner reassigning their key row to another user_id. Column scope is not expressible in RLS: an owner may write key_hash, which is the reroll the panel already offers.';
+  'Owner-scoped UPDATE, completing the read/insert/delete set from 20261004123918. Required by handleRerollKey and by the revoked_at write that replaces deletion (BEL-273 PR C). WITH CHECK is explicit for the same restriction USING already gives, per the CREATE POLICY default; it is documentation, not an additional guard. Column scope is not expressible in RLS: an owner may write key_hash, which is the reroll the panel already offers.';
 
 -- ============================================================
 -- SECTION 3. Post-check
 --
 -- Reads the expected state back so the operator is not relying on this file's own
--- success message alone. The owner-scoping assertion is the one that matters: a policy
--- that exists but does not narrow to the caller is worse than no policy, because it
--- looks fixed.
+-- success message alone. A policy that exists but does not narrow to the caller is worse
+-- than no policy, because it looks fixed.
+--
+-- What this check does and does not prove, stated precisely. It deparses both clauses and
+-- asks whether the text names auth.uid() and user_id. That is a substring test: it passes
+-- on `user_id <> auth.uid()` and on `auth.uid() = user_id OR true`, so it proves the two
+-- identifiers appear, not that the policy narrows to the caller. It is a cheap guard
+-- against the policy having been created with something else in it, and it is not
+-- evidence of correctness. The error message says "does not reference", which is the
+-- honest description of what it tests.
+--
+-- Deparse is anchored to a search_path that excludes `auth` and `public`, so a role whose
+-- own search_path contains `auth` -- the `authenticator` role does -- gets the same
+-- deparsed text as everyone else. Without this, pg_get_expr would print `uid()` instead
+-- of `auth.uid()`, the substring test would fail, and this block would RAISE on a
+-- correctly migrated database, rolling back the policy it had just verified. That is
+-- precisely the outcome this section exists to prevent, so the path is pinned.
 -- ============================================================
 DO $$
 DECLARE
-  policy_def text;
-  covers_key_hash boolean;
+  policy_def       text;
+  names_both_ids   boolean;
 BEGIN
-  SELECT pg_get_expr(pol.polqual, pol.polrelid) || ' / ' || pg_get_expr(pol.polwithcheck, pol.polrelid)
+  PERFORM set_config('search_path', 'pg_catalog', true);
+
+  -- coalesce on the NULL polwithcheck: `x || NULL` is NULL, so a policy present with a
+  -- NULL WITH CHECK would otherwise be indistinguishable from a policy that is absent,
+  -- and reported as "absent after this migration ran".
+  SELECT coalesce(pg_get_expr(pol.polqual, pol.polrelid), '<none>')
+         || ' / ' || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '<none>')
     INTO policy_def
     FROM pg_policy pol
    WHERE pol.polrelid = 'public.api_keys'::regclass
@@ -163,16 +229,27 @@ BEGIN
     RAISE EXCEPTION 'api_keys_owner_update is absent after this migration ran.';
   END IF;
 
-  covers_key_hash := policy_def LIKE '%auth.uid()%' AND policy_def LIKE '%user_id%';
+  names_both_ids := policy_def LIKE '%auth.uid()%' AND policy_def LIKE '%user_id%';
 
-  IF NOT covers_key_hash THEN
+  IF NOT names_both_ids THEN
     RAISE EXCEPTION
       'api_keys_owner_update does not reference auth.uid() and user_id in both its USING '
       'and WITH CHECK expressions. It reads: %', policy_def;
   END IF;
 
-  RAISE NOTICE 'api_keys: owner UPDATE policy present and owner-scoped. USING/WITH CHECK: %', policy_def;
+  RAISE NOTICE 'api_keys: owner UPDATE policy present and names auth.uid() and user_id. USING/WITH CHECK: %', policy_def;
   RAISE NOTICE 'api_keys: 4 owner policies now exist (SELECT, INSERT, DELETE, UPDATE).';
+
+  -- The policy narrowing is only half the condition. A policy backed by no UPDATE
+  -- privilege is refused on privilege before the policy is ever consulted, which is the
+  -- same "looks fixed" state this section is about. Read the ACL again here rather than
+  -- trusting section 1 to have covered it.
+  IF NOT has_table_privilege('authenticated', 'public.api_keys', 'UPDATE') THEN
+    RAISE WARNING
+      'api_keys_owner_update exists and is owner-scoped, but authenticated still cannot '
+      'UPDATE api_keys. The policy will not be consulted. Grant UPDATE on the table; this '
+      'file does not, by design.';
+  END IF;
 END
 $$;
 
