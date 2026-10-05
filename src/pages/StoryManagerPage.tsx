@@ -160,8 +160,15 @@ function StoryList({
       return;
     }
 
-    if (story.locked) {
-      setActionError('This story is locked and cannot be deleted. Unlock it first.');
+    // Same two conditions the API and the RLS policy apply (BEL-71). Checked here
+    // so the panel names the real condition instead of only learning about it
+    // from an empty result. The database is still the authority; this is not a
+    // control, it is a clearer error message.
+    const blocked: string[] = [];
+    if (story.locked) blocked.push('it is locked (unlock it first)');
+    if (story.published) blocked.push('it is published (unpublish it first)');
+    if (blocked.length > 0) {
+      setActionError(`This story cannot be deleted because ${blocked.join(' and ')}.`);
       setActing(false);
       setActionTarget(null);
       return;
@@ -412,9 +419,15 @@ function StoryList({
                           </button>
                           <button
                             onClick={() => setActionTarget({ id: story.id, action: 'delete' })}
-                            disabled={story.locked}
+                            disabled={story.locked || story.published}
                             className="p-1.5 rounded-lg text-stone-500 hover:text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                            title={story.locked ? 'Unlock to delete' : 'Delete story'}
+                            title={
+                              story.locked
+                                ? 'Unlock to delete'
+                                : story.published
+                                  ? 'Unpublish to delete'
+                                  : 'Delete story'
+                            }
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

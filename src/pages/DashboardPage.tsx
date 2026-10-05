@@ -419,7 +419,7 @@ curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -d '{"resource":"stories","action":"update","id":"UUID",
        "data":{"title":"new title","published":true}}'
 
-# Delete a story (admin only; a locked story is refused with 409)
+# Delete a story (admin only; refused with 409 while published or locked)
 curl -X POST ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\

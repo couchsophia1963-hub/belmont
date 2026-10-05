@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { evaluateTakeDown } from "./story-lock.ts";
+import { evaluateDelete, evaluateTakeDown } from "./story-lock.ts";
 
 const INDEX = fileURLToPath(new URL("./index.ts", import.meta.url));
 const indexSource = readFileSync(INDEX, "utf8");
@@ -148,5 +148,75 @@ test("the refusal does not depend on which action asked", () => {
     JSON.stringify(evaluateTakeDown({ wantsUnpublish: true, ...lockedLive })),
     JSON.stringify(evaluateTakeDown({ wantsUnpublish: true, ...lockedLive })),
     "identical row state must yield an identical decision",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// BEL-71: the `delete` decision.
+//
+// `delete` is the only mutating action with no audit trail, so it is refused on
+// anything a reader can see, and on a lock whatever the published state. The
+// cases below are the board's accepted control; if one of them is rewritten
+// without a decision, this fails.
+// ---------------------------------------------------------------------------
+
+const DRAFT = { locked: false, published: false };
+
+test("an unpublished, unlocked draft can be deleted", () => {
+  assert.equal(evaluateDelete(DRAFT).allowed, true, "delete is for drafts");
+});
+
+test("an unlocked LIVE story cannot be deleted", () => {
+  // The defect BEL-71 closes. Before the fix this was allowed and left no record.
+  const decision = evaluateDelete({ locked: false, published: true });
+  assert.equal(decision.allowed, false, "a live story must not be deletable");
+  assert.equal(decision.status, 409, "it must not answer 200");
+  assert.match(decision.message, /published/i, "the refusal must say why");
+  assert.match(decision.message, /unpublish/i, "the refusal must say what to do");
+});
+
+test("a locked draft still cannot be deleted", () => {
+  const decision = evaluateDelete({ locked: true, published: false });
+  assert.equal(decision.allowed, false, "a lock blocks deletion at any publish state");
+  assert.match(decision.message, /unlock/i, "the refusal must name the lock");
+});
+
+test("a locked live story is refused for both reasons, in one response", () => {
+  const decision = evaluateDelete({ locked: true, published: true });
+  assert.equal(decision.allowed, false, "both conditions block");
+  assert.equal(
+    decision.message,
+    "Story cannot be deleted because it is locked (unlock it first) and it is published (unpublish it first).",
+    "every reason at once, so the caller does not discover them one round trip apart",
+  );
+});
+
+test("the lock is named before published", () => {
+  // Wording order is load-bearing for the panel's copy, which reads this back.
+  const decision = evaluateDelete({ locked: true, published: true });
+  assert.ok(
+    decision.message.indexOf("locked") < decision.message.indexOf("published"),
+    "unlock before unpublish: the lock is the stricter condition",
+  );
+});
+
+test("the delete guard is reached from index.ts's delete branch", () => {
+  const deleteBranch = indexSource.slice(
+    indexSource.indexOf('if (action === "delete")'),
+    indexSource.indexOf('if (action === "unpublish")'),
+  );
+  assert.ok(
+    deleteBranch.includes("evaluateDelete("),
+    "the delete action must call the shared guard before deleting",
+  );
+  assert.ok(
+    /select\("locked, published"\)/.test(deleteBranch),
+    "delete must read published, not just locked",
+  );
+  assert.ok(
+    !/if \(storyRow\.locked\)\s*\{?\s*return errorResponse\("Story is locked and cannot be deleted/.test(
+      deleteBranch,
+    ),
+    "the lock-only inline check is the BEL-71 gap and must not come back",
   );
 });
