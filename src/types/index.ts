@@ -41,7 +41,14 @@ export interface Comment {
   user_id: string;
   body: string;
   created_at: string;
-  profiles?: Pick<Profile, 'display_name'>;
+}
+
+export interface PublicComment {
+  id: string;
+  story_id: string;
+  body: string;
+  created_at: string;
+  display_name: string | null;
 }
 
 export interface ApiKey {
