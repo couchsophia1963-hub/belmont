@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { digestFromHeader, evaluateApiKeyAuth } from "./api-key-auth.ts";
 import { evaluateTakeDown } from "./story-lock.ts";
 
 const corsHeaders = {
@@ -33,33 +34,87 @@ interface ApiRequest {
 }
 
 async function authenticate(authHeader: string | null) {
-  if (!authHeader || !authHeader.startsWith("Bearer bcn_")) {
-    return null;
-  }
-  const rawKey = authHeader.replace("Bearer ", "").trim();
+  // The key is looked up by its digest, never by itself. `key_hash` is named for
+  // a hash and holds the raw credential — read it and you have every desk key in
+  // full — so it is not a value this function may put in a query. The digest is
+  // the same SHA-256 that `api_keys_fill_key_digest` writes into `key_digest`,
+  // over the same bytes, so the credential never leaves this function: it is
+  // hashed here and dropped.
+  //
+  // Requires 20261005290000 (PR #40). Deploying this before that migration is
+  // applied refuses every key with no error in either column, because no
+  // `key_digest` column exists to match.
+  const digest = await digestFromHeader(authHeader);
+  if (!digest) return null;
 
+  // `.is("revoked_at", null)" is the revocation half, and it is load-bearing:
+  // revoking a row does not delete it, so without this filter a revoked key keeps
+  // working. `evaluateApiKeyAuth` checks `revoked_at` again, which is redundant
+  // on purpose — if this filter is ever dropped the guard survives in code where a
+  // test can reach it, instead of the refusal depending on one string here.
+  //
+  // `id` is selected for the `last_used_at` stamp below and nothing else.
   const { data: keyRow } = await supabase
     .from("api_keys")
-    .select("user_id")
-    .eq("key_hash", rawKey)
+    .select("id, user_id, revoked_at")
+    .eq("key_digest", digest)
+    .is("revoked_at", null)
     .maybeSingle();
 
-  if (!keyRow) return null;
+  // A key whose owner is gone, or who may not write, is refused here rather than
+  // after the stamp, so a refused key is not written to.
+  const { data: profile } = keyRow
+    ? await supabase
+        .from("profiles")
+        .select("id, role, display_name, email")
+        .eq("id", keyRow.user_id)
+        .maybeSingle()
+    : { data: null };
 
-  // Update last_used_at
-  await supabase
+  const decision = evaluateApiKeyAuth({
+    header: authHeader,
+    keyRow: keyRow ? { id: keyRow.id, user_id: keyRow.user_id, revoked_at: keyRow.revoked_at } : null,
+    profile: profile
+      ? {
+          id: profile.id,
+          role: profile.role,
+          display_name: profile.display_name,
+          email: profile.email,
+        }
+      : null,
+  });
+
+  if (!decision.allowed) return null;
+
+  // Stamp `last_used_at` by row id, not by the secret. This used to be a second
+  // query filtered on `key_hash = rawKey`, which put the credential in a second
+  // query's filter and scanned the column again to find the row the lookup above
+  // had already found. `key_digest` is indexed and unique (PR #40), so the lookup
+  // is a single index probe either way.
+  //
+  // Runs as service_role, which bypasses RLS, so this is not the panel's write
+  // path and is not affected by the owner UPDATE policy in 20261005300000. It
+  // does fire `api_keys_revoked_at_is_monotonic` (20261005305000), which compares
+  // OLD and NEW `revoked_at`, sees the column unchanged, and returns NEW.
+  //
+  // The result is read, which it was not before. This is a best-effort stamp: a
+  // failure here must not refuse a request the caller is entitled to make, so it
+  // does not change the return value. But discarding the error made this the last
+  // write in this function with the shape this whole stack exists to remove --
+  // reports success, changes nothing, logs nothing -- which is precisely how
+  // `handleRerollKey` has been silently failing since the beginning. `last_used_at`
+  // is the evidence PR #40 section 8's audit case depends on, so a stamp that
+  // quietly stops happening has to be visible.
+  const { error: stampError } = await supabase
     .from("api_keys")
     .update({ last_used_at: new Date().toISOString() })
-    .eq("key_hash", rawKey);
+    .eq("id", decision.keyId);
 
-  // Get profile to check role
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id, role, display_name, email")
-    .eq("id", keyRow.user_id)
-    .maybeSingle();
-
-  if (!profile || (profile.role !== "writer" && profile.role !== "admin")) return null;
+  if (stampError) {
+    console.error(
+      `api_keys.last_used_at not stamped for key ${decision.keyId}: ${stampError.message}`,
+    );
+  }
 
   return profile;
 }
