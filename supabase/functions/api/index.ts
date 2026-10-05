@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { evaluateTakeDown } from "./story-lock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -146,10 +147,11 @@ Deno.serve(async (req: Request) => {
 
       if (action === "update") {
         if (!id) return errorResponse("Update requires 'id'", 400);
-        // No lock check here on purpose. Lock is narrow: it prevents deletion,
-        // nothing more. A correction is an update, so a locked story has to
-        // stay correctable -- a story nobody can fix is a worse failure than
-        // one somebody can delete. See BEL-83 item 2.
+        // No blanket lock check here on purpose. Lock is narrow: it prevents
+        // deletion and taking a live story down, nothing more. A correction is
+        // an update, so a locked story has to stay correctable -- a story
+        // nobody can fix is a worse failure than one somebody can delete. See
+        // BEL-83 item 2 and BEL-166.
         const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (data?.title) {
           updateData.title = data.title;
@@ -161,7 +163,29 @@ Deno.serve(async (req: Request) => {
         if (data?.image_url !== undefined) updateData.image_url = data.image_url;
         if (data?.category) updateData.category = data.category;
         if (data?.is_headline !== undefined) updateData.is_headline = data.is_headline;
-        if (data?.published !== undefined) updateData.published = data.published;
+        if (data?.published !== undefined) {
+          // `update` writes `published` too, so without this the check in
+          // `unpublish` was bypassable from one action earlier and the lock was
+          // advisory rather than enforced. Guard only the take-down of a live
+          // story: every other field above still writes to a locked story.
+          const wantsUnpublish = !data.published;
+          if (wantsUnpublish) {
+            const { data: lockRow, error: lockCheckError } = await supabase
+              .from("stories")
+              .select("locked, published")
+              .eq("id", id)
+              .maybeSingle();
+            if (lockCheckError) return errorResponse(lockCheckError.message, 500);
+            if (!lockRow) return errorResponse("Story not found", 404);
+            const decision = evaluateTakeDown({
+              wantsUnpublish,
+              locked: Boolean(lockRow.locked),
+              published: Boolean(lockRow.published),
+            });
+            if (!decision.allowed) return errorResponse(decision.message, decision.status);
+          }
+          updateData.published = data.published;
+        }
 
         const { data: story, error } = await supabase
           .from("stories")
