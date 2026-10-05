@@ -31,6 +31,12 @@ interface ApiRequest {
   id?: string;
 }
 
+interface RosterByline {
+  byline: string;
+  profile_id: string | null;
+  kind: "reporter" | "desk";
+}
+
 async function authenticate(authHeader: string | null) {
   if (!authHeader || !authHeader.startsWith("Bearer bcn_")) {
     return null;
@@ -69,6 +75,76 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "")
     .substring(0, 80);
+}
+
+// The byline comes from the draft, not from the key. The key owner is
+// permission to write; it is not authorship. Reads byline_roster, which
+// the BEL-188 migration seeds from the desk's ruling, and refuses
+// anything that is not on it rather than writing a name nobody ruled on.
+// Returns a Response on refusal so the caller can return it unchanged.
+//
+// Deploy order: apply 20261005151500_byline_roster.sql first, and fill in
+// byline_roster.profile_id for the bylines you intend to use. Until the
+// desk row has a profile, `stories create` refuses with 422 by design.
+async function resolveByline(
+  data: Record<string, unknown> | undefined,
+  keyOwner: { id: string; display_name: string },
+): Promise<{ profileId: string; byline: string } | Response> {
+  const { data: roster, error } = await supabase
+    .from("byline_roster")
+    .select("byline, profile_id, kind")
+    .eq("active", true);
+
+  if (error) {
+    return errorResponse(
+      `byline_roster is unreadable, so no story can be written with a correct byline. Apply 20261005151500_byline_roster.sql before this function. Supabase says: ${error.message}`,
+      500,
+    );
+  }
+
+  const permitted = (roster ?? []) as RosterByline[];
+  const permittedList = permitted.map((r) => r.byline).sort().join(", ") || "(none seeded)";
+
+  const requested =
+    typeof data?.byline === "string" ? data.byline.trim()
+    : typeof data?.author_name === "string" ? data.author_name.trim()
+    : typeof data?.author_id === "string" ? data.author_id.trim()
+    : "";
+
+  let match: RosterByline | undefined;
+
+  if (requested) {
+    match = permitted.find(
+      (r) => r.byline.toLowerCase() === requested.toLowerCase() || r.profile_id === requested,
+    );
+    if (!match) {
+      return errorResponse(
+        `Byline '${requested}' is not a permitted byline. Permitted: ${permittedList}. ` +
+          `This API key belongs to ${keyOwner.display_name}; holding the key is permission to write, not authorship.`,
+        422,
+      );
+    }
+  } else {
+    match = permitted.find((r) => r.kind === "desk");
+    if (!match) {
+      return errorResponse(
+        "byline_roster has no active desk byline, and this request named none. " +
+          "Pass data.byline, or activate the desk row the BEL-188 migration seeds.",
+        500,
+      );
+    }
+  }
+
+  if (!match.profile_id) {
+    return errorResponse(
+      `Byline '${match.byline}' has no profiles row yet, so it cannot be written to stories.author_id. ` +
+        "Create the auth user and its profiles row (role writer), then set byline_roster.profile_id for that byline. " +
+        "Refusing rather than writing a null author_id, which is unattributed copy.",
+      422,
+    );
+  }
+
+  return { profileId: match.profile_id, byline: match.byline };
 }
 
 Deno.serve(async (req: Request) => {
@@ -123,6 +199,8 @@ Deno.serve(async (req: Request) => {
         if (!data?.title || !data?.body) {
           return errorResponse("Stories require 'title' and 'body'", 400);
         }
+        const byline = await resolveByline(data, profile);
+        if (byline instanceof Response) return byline;
         const slug = (data.slug as string) || slugify(data.title as string);
         const insertData = {
           title: data.title,
@@ -131,7 +209,7 @@ Deno.serve(async (req: Request) => {
           body: data.body,
           image_url: data.image_url || null,
           category: data.category || "Local News",
-          author_id: profile.id,
+          author_id: byline.profileId,
           is_headline: data.is_headline || false,
           published: data.published !== undefined ? data.published : true,
         };
@@ -141,7 +219,7 @@ Deno.serve(async (req: Request) => {
           .select()
           .single();
         if (error) return errorResponse(error.message, 500);
-        return jsonResponse({ story }, 201);
+        return jsonResponse({ story, byline: byline.byline }, 201);
       }
 
       if (action === "update") {
@@ -162,6 +240,11 @@ Deno.serve(async (req: Request) => {
         if (data?.category) updateData.category = data.category;
         if (data?.is_headline !== undefined) updateData.is_headline = data.is_headline;
         if (data?.published !== undefined) updateData.published = data.published;
+        if (data?.byline !== undefined || data?.author_name !== undefined || data?.author_id !== undefined) {
+          const byline = await resolveByline(data, profile);
+          if (byline instanceof Response) return byline;
+          updateData.author_id = byline.profileId;
+        }
 
         const { data: story, error } = await supabase
           .from("stories")
