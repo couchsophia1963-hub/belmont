@@ -19,8 +19,21 @@ function App() {
           rendered the homepage with a 200, so a link arriving from anywhere
           outside the site landed on the front page with no error anywhere.
           The cost of BrowserRouter is that the host must serve index.html for
-          unknown paths; this one does, verified 2026-10-05. */}
-      <BrowserRouter>
+          unknown paths.
+
+          Both hosts are handled, and they need different things. The Bolt host
+          serves the app at the domain root and returns index.html for unknown
+          paths already, verified 2026-10-05. GitHub Pages serves a project site
+          from `/<repo>/` and answers unknown paths with 404.html instead, which
+          is what `public/404.html` and the restore in `main.tsx` exist for.
+
+          `basename` is what makes one route table serve both. Without it the
+          router would read `/belmont/story/<slug>` as an unknown route and
+          render NotFoundPage for a story that exists. It is `/` on the Bolt
+          host, so the live deploy is unaffected. Note that the share URL is
+          built independently, from the runtime pathname, in `lib/storyUrl.ts` —
+          that is deliberate, so the two cannot disagree. */}
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <div className="min-h-screen flex flex-col bg-stone-50 dark:bg-stone-950">
           <Header />
           <main className="flex-1">
