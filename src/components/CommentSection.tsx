@@ -1,20 +1,17 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import type { Comment, Profile } from '@/types';
+import type { PublicComment } from '@/types';
 import { Send, Trash2, MessageCircle, Loader2 } from 'lucide-react';
 
 interface CommentSectionProps {
   storyId: string;
 }
 
-type CommentWithProfile = Comment & {
-  profiles: Pick<Profile, 'display_name' | 'email'> | null;
-};
-
 export function CommentSection({ storyId }: CommentSectionProps) {
-  const { session, profile, role } = useAuth();
-  const [comments, setComments] = useState<CommentWithProfile[]>([]);
+  const { session, profile } = useAuth();
+  const [comments, setComments] = useState<PublicComment[]>([]);
+  const [deletableIds, setDeletableIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -22,8 +19,8 @@ export function CommentSection({ storyId }: CommentSectionProps) {
 
   const loadComments = async () => {
     const { data, error: queryError } = await supabase
-      .from('comments')
-      .select('*, profiles:profiles!comments_user_id_fkey(display_name, email)')
+      .from('comments_public')
+      .select('id, story_id, body, created_at, display_name')
       .eq('story_id', storyId)
       .order('created_at', { ascending: false });
 
@@ -32,14 +29,27 @@ export function CommentSection({ storyId }: CommentSectionProps) {
       setLoading(false);
       return;
     }
-    setComments((data ?? []) as CommentWithProfile[]);
+    setComments((data ?? []) as PublicComment[]);
     setLoading(false);
+  };
+
+  const loadDeletableIds = async () => {
+    if (!session) {
+      setDeletableIds(new Set());
+      return;
+    }
+    const { data } = await supabase
+      .from('comments')
+      .select('id')
+      .eq('story_id', storyId);
+    setDeletableIds(new Set((data ?? []).map((row) => row.id)));
   };
 
   useEffect(() => {
     loadComments();
+    loadDeletableIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storyId]);
+  }, [storyId, session]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,7 +69,7 @@ export function CommentSection({ storyId }: CommentSectionProps) {
 
     setBody('');
     setSubmitting(false);
-    await loadComments();
+    await Promise.all([loadComments(), loadDeletableIds()]);
   };
 
   const handleDelete = async (commentId: string) => {
@@ -72,11 +82,10 @@ export function CommentSection({ storyId }: CommentSectionProps) {
       setError(deleteError.message);
       return;
     }
-    await loadComments();
+    await Promise.all([loadComments(), loadDeletableIds()]);
   };
 
-  const canDelete = (comment: CommentWithProfile) =>
-    session && (comment.user_id === session.user.id || role === 'admin');
+  const canDelete = (comment: PublicComment) => Boolean(session) && deletableIds.has(comment.id);
 
   return (
     <section className="mt-12 border-t border-stone-200 pt-8">
@@ -153,13 +162,11 @@ export function CommentSection({ storyId }: CommentSectionProps) {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-stone-300 text-stone-600 flex items-center justify-center font-sans font-bold text-sm">
-                    {(comment.profiles?.display_name || comment.profiles?.email || '?')
-                      .charAt(0)
-                      .toUpperCase()}
+                    {(comment.display_name || '?').charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <span className="font-sans text-sm font-semibold text-stone-800">
-                      {comment.profiles?.display_name || comment.profiles?.email || 'Unknown'}
+                      {comment.display_name || 'Unknown'}
                     </span>
                     <span className="font-sans text-xs text-stone-400 ml-2">
                       {new Date(comment.created_at).toLocaleDateString('en-US', {
