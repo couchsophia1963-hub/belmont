@@ -15,7 +15,13 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useState } from 'react';
-import { VALID_ICON_CODES } from '../lib/weatherContract';
+import {
+  VALID_ICON_CODES,
+  HUMIDITY_BASIS_SHORT,
+  HUMIDITY_BASIS_LONG,
+  PRECIP_BASIS_SHORT,
+  PRECIP_BASIS_LONG,
+} from '../lib/weatherContract';
 import { isForecastToday } from '../lib/forecastDay';
 
 export type ValidIconCode = (typeof VALID_ICON_CODES)[number];
@@ -189,19 +195,51 @@ export function WeatherForecast({ forecasts, totalDays }: WeatherForecastProps) 
                   </div>
                 )}
 
-                <div className="flex items-center gap-4 font-sans text-xs text-white/60">
-                  <span className="flex items-center gap-1">
-                    <Droplets className="w-3.5 h-3.5" />
-                    {day.humidity}%
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 font-sans text-xs text-white/60">
+                  <span className="flex flex-col items-center gap-0.5" title={HUMIDITY_BASIS_LONG}>
+                    <span className="flex items-center gap-1">
+                      <Droplets className="w-3.5 h-3.5" />
+                      Humidity {day.humidity}%
+                    </span>
+                    {/* The number is the 06:00-18:00 peak, not the humidity of the
+                        day (BEL-190). A bare "%" beside a 67 degree high read as a
+                        description of the afternoon, so the basis travels with it.
+                        Ink matches the condition line above it: white/40 was the
+                        dimmest thing on the card, and no alpha short of solid white
+                        clears 4.5:1 across this gradient. See the PR for the
+                        numbers and for why the footer as a whole is still short. */}
+                    <span className="text-[10px] uppercase tracking-wider text-white/80">
+                      {HUMIDITY_BASIS_SHORT}
+                    </span>
+                    <span className="sr-only">{HUMIDITY_BASIS_LONG}</span>
                   </span>
                   <span className="flex items-center gap-1">
                     <Wind className="w-3.5 h-3.5" />
                     {windLabel}
                   </span>
                   {precipitation !== null && (
-                    <span className="flex items-center gap-1">
-                      <CloudRain className="w-3.5 h-3.5" />
-                      {precipitation}%
+                    /* Same defect as the bare humidity "%" one element left, so
+                       it gets the same treatment: name the number, then name the
+                       basis under it (BEL-201, ruled by QA on BEL-195). "Chance"
+                       is what makes this a probability rather than an amount, and
+                       the noun stays "precipitation" because the NWS field is PoP
+                       for frozen as well as liquid - see PRECIP_BASIS_LONG. The
+                       basis tag is `daytime`, NOT `daytime peak`: this value is
+                       one probability for the period, not a maximum over it. Ink
+                       matches the humidity tag above it, for the measured reason
+                       in HUMIDITY_BASIS_LONG's sibling comment. */
+                    <span
+                      className="flex flex-col items-center gap-0.5"
+                      title={PRECIP_BASIS_LONG}
+                    >
+                      <span className="flex items-center gap-1">
+                        <CloudRain className="w-3.5 h-3.5" />
+                        Precipitation chance {precipitation}%
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wider text-white/80">
+                        {PRECIP_BASIS_SHORT}
+                      </span>
+                      <span className="sr-only">{PRECIP_BASIS_LONG}</span>
                     </span>
                   )}
                 </div>
