@@ -180,6 +180,19 @@ function WriterDashboard({ userId }: { userId: string }) {
     return key;
   };
 
+  // The database no longer holds the key, only this digest of it, so the digest is computed here.
+  //
+  // `crypto.subtle.digest` is the Web Crypto API, available in the browser over HTTPS with no
+  // dependency, and the raw key never leaves this page. Lowercase hex, no prefix, over the UTF-8
+  // bytes, which is what the edge function computes before it looks a key up, and what the database
+  // derived from the stored credential while that column existed. A mismatch fails closed: no row
+  // matches and the caller is refused rather than let in. The casing and the absent prefix are
+  // load-bearing, not cosmetic.
+  const digestApiKey = async (rawKey: string): Promise<string> => {
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawKey));
+    return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  };
+
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKeyName.trim()) return;
@@ -189,7 +202,7 @@ function WriterDashboard({ userId }: { userId: string }) {
     const prefix = rawKey.substring(0, 12);
     const { error } = await supabase.from('api_keys').insert({
       user_id: userId,
-      key_hash: rawKey,
+      key_digest: await digestApiKey(rawKey),
       key_prefix: prefix,
       name: newKeyName.trim(),
     });
@@ -210,7 +223,7 @@ function WriterDashboard({ userId }: { userId: string }) {
     const prefix = rawKey.substring(0, 12);
     const { error } = await supabase
       .from('api_keys')
-      .update({ key_hash: rawKey, key_prefix: prefix })
+      .update({ key_digest: await digestApiKey(rawKey), key_prefix: prefix })
       .eq('id', keyId);
     if (error) {
       alert('Failed to reroll key: ' + error.message);
