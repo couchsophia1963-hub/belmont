@@ -53,7 +53,7 @@
 -- Landing order
 -- -------------
 -- 1. THIS FILE.
--- 2. Apply `20261005171000_stories_byline_check.sql`, which makes the two
+-- 2. Apply `20261005173000_stories_byline_check.sql`, which makes the two
 --    RLS write policies on `stories` call `is_permitted_byline()`.
 -- 3. In the Supabase **Auth dashboard** - not the SQL editor - create an
 --    auth user for `Belmont News staff` and for each reporter the desk
@@ -79,7 +79,12 @@
 --   * What authenticated callers get is two SECURITY DEFINER functions
 --     that return only what a caller legitimately needs: a boolean for
 --     RLS, and the permitted name/id pairs for the admin panel's byline
---     picker. Neither exposes the inactive rows or the ruling text.
+--     picker. Neither exposes the inactive rows or the ruling text, and
+--     both refuse a caller who is not a writer or an admin, so an ordinary
+--     signed-in reader cannot use either as a membership oracle.
+--   * The edge function needs neither. It connects as service_role and
+--     reads the table directly, so it is unaffected by the writer-only
+--     guard on these two.
 --   * Nothing in this file grants a write to any role.
 --
 -- The exposure if this ever leaks is **reads**, not writes: the ruling
@@ -221,14 +226,23 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-      FROM byline_roster r
-      JOIN profiles p ON p.id = r.profile_id
-     WHERE r.active
-       AND r.profile_id = p_author_id
-       AND lower(p.display_name) = lower(r.byline)
-  );
+  SELECT CASE
+    -- Callers who are not a writer or an admin get nothing back, including
+    -- the service role's own calls, so this cannot be used as a membership
+    -- oracle by an ordinary signed-in reader. See the audience note below.
+    WHEN NOT EXISTS (
+      SELECT 1 FROM profiles
+       WHERE id = auth.uid() AND role IN ('writer', 'admin')
+    ) THEN false
+    ELSE EXISTS (
+      SELECT 1
+        FROM byline_roster r
+        JOIN profiles p ON p.id = r.profile_id
+       WHERE r.active
+         AND r.profile_id = p_author_id
+         AND lower(p.display_name) = lower(r.byline)
+    )
+  END;
 $$;
 
 COMMENT ON FUNCTION public.is_permitted_byline(uuid) IS
@@ -244,11 +258,25 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- The caller must be a writer or an admin. Without this, any signed-in
+  -- reader of the app - and it has public comments, so non-writers exist -
+  -- could call rpc/permitted_bylines for the permitted bylines and their
+  -- profile ids, or use is_permitted_byline as a membership oracle.
+  --
+  -- Severity is low: profiles is already world-readable under
+  -- profiles_public_read (BEL-31), so ids and display names are not secret.
+  -- But `authenticated` is broader than the intent, and the panel is the
+  -- only caller that needs either function. auth.uid() is null for anon and
+  -- for service_role, so both get the empty answer rather than the rows.
   SELECT r.byline, r.profile_id
     FROM byline_roster r
     JOIN profiles p ON p.id = r.profile_id
    WHERE r.active
      AND lower(p.display_name) = lower(r.byline)
+     AND EXISTS (
+       SELECT 1 FROM profiles caller
+        WHERE caller.id = auth.uid() AND caller.role IN ('writer', 'admin')
+     )
    ORDER BY r.kind DESC, r.byline;
 $$;
 
@@ -273,8 +301,6 @@ GRANT EXECUTE ON FUNCTION public.permitted_bylines() TO authenticated;
 -- the panel gets PGRST202 "could not find the function". The NOTIFY is
 -- delivered on COMMIT. Applying through the Supabase CLI reloads the cache
 -- itself and this line does nothing.
-commit;
-
 -- ============================================================
 -- 6. Make PostgREST see it
 -- ============================================================
@@ -286,3 +312,5 @@ commit;
 -- delivered on COMMIT. Applying through the Supabase CLI reloads the cache
 -- itself and this line does nothing.
 NOTIFY pgrst, 'reload schema';
+
+commit;

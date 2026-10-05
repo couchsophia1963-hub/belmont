@@ -94,17 +94,22 @@ function slugify(text: string): string {
 // applies to direct PostgREST writers, via is_permitted_byline().
 //
 // Deploy order, and all four steps are required:
-//   1. 20261005170000_byline_roster.sql
-//   2. 20261005171000_stories_byline_check.sql
+//   1. 20261005172000_byline_roster.sql
+//   2. 20261005173000_stories_byline_check.sql
 //   3. Auth dashboard: create the auth users. profiles rows come from the
 //      on_auth_user_created trigger, so this is NOT a SQL step.
 //   4. SQL: set byline_roster.profile_id, and make profiles.display_name
 //      equal byline_roster.byline.
 // Until step 4 is done for the desk row, `stories create` refuses with
 // 500 by design.
+//
+// `action` is read only by the blank-byline rule, which differs between
+// create and update. It defaults to "create" so a caller that omits it
+// cannot silently get create semantics on an update.
 async function resolveByline(
   data: Record<string, unknown> | undefined,
   keyOwner: { id: string; display_name: string },
+  action: "create" | "update" = "create",
 ): Promise<{ profileId: string; byline: string } | Response> {
   const { data: roster, error } = await supabase
     .from("byline_roster")
@@ -113,7 +118,7 @@ async function resolveByline(
 
   if (error) {
     return errorResponse(
-      `byline_roster is unreadable, so no story can be written with a correct byline. Apply 20261005170000_byline_roster.sql before this function. Supabase says: ${error.message}`,
+      `byline_roster is unreadable, so no story can be written with a correct byline. Apply 20261005172000_byline_roster.sql before this function. Supabase says: ${error.message}`,
       500,
     );
   }
@@ -123,11 +128,11 @@ async function resolveByline(
 
   // Present-but-blank is different from absent, and only on update.
   // `{"byline": null}` and `{"byline": ""}` both reach here as a present
-  // field with an empty string. On create an empty byline meaning "no byline
-  // named" is fine and the desk line is right. On update it is a correction
-  // in flight that would quietly republish a reporter's story under the
-  // desk line, returning 200 with nothing in a log. So it is refused, and
-  // omitting the field remains how you say "no change".
+  // field with an empty string. On create that means "no byline named", and
+  // the desk line below is the right answer. On update it is a correction in
+  // flight that would quietly republish a reporter's story under the desk
+  // line, returning 200 with nothing in a log. So it is refused on update
+  // only, and omitting the field remains how you say "no change".
   const bylinePresent =
     data?.byline !== undefined || data?.author_name !== undefined || data?.author_id !== undefined;
   const requested =
@@ -136,7 +141,7 @@ async function resolveByline(
     : typeof data?.author_id === "string" ? data.author_id.trim()
     : "";
 
-  if (bylinePresent && !requested) {
+  if (bylinePresent && !requested && action === "update") {
     return errorResponse(
       "A byline was supplied but it is blank. Name the byline, or omit the field entirely to leave it unchanged.",
       422,
@@ -151,9 +156,17 @@ async function resolveByline(
     // writer token must not be able to name an arbitrary profile id.
     match = permitted.find((r) => r.byline.toLowerCase() === requested.toLowerCase());
     if (!match) {
+      // A bare uuid is not a byline name, so say so rather than quoting a
+      // uuid back as though it were one. The author_id field name is an
+      // easy thing to reach for by mistake, and the old message answered
+      // that mistake in the shape of a byline complaint.
+      const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested);
       return errorResponse(
-        `Byline '${requested}' is not a permitted byline. Permitted: ${permittedList}. ` +
-          `This API key belongs to ${keyOwner.display_name}; holding the key is permission to write, not authorship.`,
+        looksLikeUuid
+          ? `A profile id was supplied where a byline name belongs. The byline is chosen by name from the roster - ` +
+            `permitted: ${permittedList}. Send it in "byline", not "author_id".`
+          : `Byline '${requested}' is not a permitted byline. Permitted: ${permittedList}. ` +
+            `This API key belongs to ${keyOwner.display_name}; holding the key is permission to write, not authorship.`,
         422,
       );
     }
@@ -263,7 +276,7 @@ Deno.serve(async (req: Request) => {
         if (!data?.title || !data?.body) {
           return errorResponse("Stories require 'title' and 'body'", 400);
         }
-        const byline = await resolveByline(data, profile);
+        const byline = await resolveByline(data, profile, "create");
         if (byline instanceof Response) return byline;
         const slug = (data.slug as string) || slugify(data.title as string);
         const insertData = {
@@ -308,7 +321,7 @@ Deno.serve(async (req: Request) => {
         // resolveByline, not treated as "no change" and not silently
         // republishing the story under the desk line.
         if (data?.byline !== undefined || data?.author_name !== undefined || data?.author_id !== undefined) {
-          const byline = await resolveByline(data, profile);
+          const byline = await resolveByline(data, profile, "update");
           if (byline instanceof Response) return byline;
           updateData.author_id = byline.profileId;
         }
