@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Share2, Copy, Check, Facebook, Twitter, Link as LinkIcon } from 'lucide-react';
+import { storyShareUrl } from '@/lib/storyUrl';
 
 interface ShareButtonProps {
   slug: string;
@@ -14,7 +15,12 @@ export function ShareButton({ slug, title, variant = 'default' }: ShareButtonPro
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const shareUrl = `${window.location.origin}${window.location.pathname}#/story/${slug}`;
+  // The share URL is built from the slug, not from `window.location.pathname`
+  // plus a hash. This button is also rendered on the homepage, where the
+  // pathname is `/`, and under BrowserRouter (BEL-92) a story page's pathname
+  // is already `/story/<slug>` — either way, reusing the current pathname
+  // produced `/#/story/<slug>` or `/story/<slug>#/story/<slug>`.
+  const shareUrl = storyShareUrl(slug, window.location.origin, window.location.pathname);
   const shareText = `${title} — Belmont County News`;
 
   useLayoutEffect(() => {
