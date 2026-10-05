@@ -97,7 +97,7 @@ function StoryManager({ role, userId }: { role: 'writer' | 'admin'; userId: stri
       )}
 
       {view === 'edit' && (
-        <StoryEditor story={editingStory} onBack={handleBack} authorId={userId} />
+        <StoryEditor story={editingStory} onBack={handleBack} />
       )}
     </div>
   );
@@ -426,7 +426,7 @@ function StoryList({
 // ============================================================
 // STORY EDITOR
 // ============================================================
-function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack: () => void; authorId: string }) {
+function StoryEditor({ story, onBack }: { story: Story | null; onBack: () => void }) {
   const [title, setTitle] = useState(story?.title ?? '');
   const [slug, setSlug] = useState(story?.slug ?? '');
   const [excerpt, setExcerpt] = useState(story?.excerpt ?? '');
@@ -435,6 +435,12 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
   const [category, setCategory] = useState(story?.category ?? 'Local News');
   const [isHeadline, setIsHeadline] = useState(story?.is_headline ?? false);
   const [published, setPublished] = useState(story?.published ?? true);
+  const [bylines, setBylines] = useState<{ byline: string; profile_id: string }[]>([]);
+  const [bylineError, setBylineError] = useState<string | null>(null);
+  // Set on create only. An existing story keeps the byline it was filed
+  // under; changing it is a correction and goes through the API, which
+  // checks the ruling the same way this panel does.
+  const [bylineId, setBylineId] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -446,6 +452,31 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 80);
+
+  // The permitted bylines, from the roster the desk ruled on (BEL-69). This
+  // panel used to hard-wire author_id to the logged-in session user, which
+  // meant publishing here filed the story under whoever happened to be
+  // signed in - the same defect the API had. RLS refuses an unruled
+  // author_id outright, so the picker is the difference between a working
+  // create button and a policy error.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.rpc('permitted_bylines');
+      if (cancelled) return;
+      if (error) {
+        setBylineError(
+          `Could not load the permitted bylines: ${error.message}. ` +
+            'The byline_roster migration has to be applied before a story can be filed here.'
+        );
+        return;
+      }
+      setBylines((data ?? []) as { byline: string; profile_id: string }[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleTitleChange = (value: string) => {
     setTitle(value);
@@ -466,6 +497,18 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
     }
 
     const finalSlug = slug.trim() || slugify(title);
+
+    // Creating a story requires a permitted byline. Editing an existing one
+    // does not: the byline it was filed under is left exactly as it is.
+    if (!story && !bylineId) {
+      setError(
+        bylines.length === 0
+          ? 'No permitted byline is available yet, so a story cannot be filed here. The byline_roster migration and the auth users behind it have to exist first.'
+          : 'Choose the byline for this story. A story cannot be filed with no byline.'
+      );
+      setSaving(false);
+      return;
+    }
 
     const payload = {
       title: title.trim(),
@@ -492,9 +535,12 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
     } else {
       const { error: insertError } = await supabase
         .from('stories')
-        .insert({ ...payload, author_id: authorId });
+        .insert({ ...payload, author_id: bylineId });
       if (insertError) {
-        setError(insertError.message);
+        setError(
+          `The database refused this byline: ${insertError.message}. If the roster lists a name the database does not accept, ` +
+            'that is a display_name that has drifted from byline_roster.byline, and an operator has to realign them.'
+        );
         setSaving(false);
         return;
       }
@@ -586,6 +632,38 @@ function StoryEditor({ story, onBack, authorId }: { story: Story | null; onBack:
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 mb-1.5">
+              Byline
+              {!story && <span className="text-error-500">*</span>}
+            </label>
+            {story ? (
+              <p className="px-4 py-2.5 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-800 font-sans text-sm text-stone-600 dark:text-stone-300">
+                This story keeps the byline it was filed under. To correct it, use the API — it checks
+                the permitted roster the same way this picker does.
+              </p>
+            ) : (
+              <>
+                <select
+                  value={bylineId}
+                  onChange={(e) => setBylineId(e.target.value)}
+                  disabled={bylines.length === 0}
+                  className="w-full px-4 py-2.5 rounded-lg border border-stone-300 dark:border-stone-600 font-sans text-sm font-semibold text-stone-700 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-stone-800 disabled:bg-stone-100 disabled:text-stone-500 dark:disabled:text-stone-500"
+                >
+                  <option value="">
+                    {bylines.length === 0 ? 'No permitted byline available' : 'Choose a byline...'}
+                  </option>
+                  {bylines.map((b) => (
+                    <option key={b.profile_id} value={b.profile_id}>{b.byline}</option>
+                  ))}
+                </select>
+                {bylineError && (
+                  <p className="mt-1.5 font-sans text-xs text-error-600 dark:text-error-400">{bylineError}</p>
+                )}
+              </>
+            )}
           </div>
 
           <div>
