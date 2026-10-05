@@ -74,8 +74,8 @@ export function HomePage() {
   const remainingStories = mainHeadline
     ? stories.filter((s) => s.id !== mainHeadline.id)
     : stories;
-  const gridStories = remainingStories.slice(0, 6);
-  const sidebarStories = remainingStories.slice(6);
+  const gridStories = remainingStories.slice(0, 9);
+  const sidebarStories = remainingStories.slice(9);
 
   const visibleDays = session ? 5 : 3;
   const displayWeather = weather.slice(0, visibleDays);
@@ -86,36 +86,32 @@ export function HomePage() {
 
       {mainHeadline && <HeadlineStory story={mainHeadline} />}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2">
-          <div className="flex items-center gap-2 mb-6">
-            <TrendingUp className="w-5 h-5 text-primary-700" />
-            <h2 className="font-serif text-2xl font-bold text-stone-900">Recent Stories</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {gridStories.map((story) => (
-              <StoryCard key={story.id} story={story} />
-            ))}
+      <div>
+        <div className="flex items-center gap-2 mb-6">
+          <TrendingUp className="w-5 h-5 text-primary-700" />
+          <h2 className="font-serif text-2xl font-bold text-stone-900">Recent Stories</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {gridStories.map((story) => (
+            <StoryCard key={story.id} story={story} />
+          ))}
+        </div>
+      </div>
+
+      {sidebarStories.length > 0 && (
+        <div className="mt-10">
+          <div className="bg-stone-100 rounded-xl p-5">
+            <h3 className="font-serif text-lg font-bold text-stone-900 mb-2 pb-3 border-b-2 border-primary-700">
+              More Headlines
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0">
+              {sidebarStories.map((story) => (
+                <StoryCard key={story.id} story={story} variant="compact" />
+              ))}
+            </div>
           </div>
         </div>
-
-        {sidebarStories.length > 0 && (
-          <aside className="lg:col-span-1">
-            <div className="sticky top-20">
-              <div className="bg-stone-100 rounded-xl p-5">
-                <h3 className="font-serif text-lg font-bold text-stone-900 mb-2 pb-3 border-b-2 border-primary-700">
-                  More Headlines
-                </h3>
-                <div className="space-y-0">
-                  {sidebarStories.map((story) => (
-                    <StoryCard key={story.id} story={story} variant="compact" />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </aside>
-        )}
-      </div>
+      )}
     </div>
   );
 }
