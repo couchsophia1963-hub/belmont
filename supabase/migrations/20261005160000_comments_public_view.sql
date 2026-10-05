@@ -3,8 +3,16 @@
 --
 -- Issue:           BEL-34
 -- Board decision:  2026-10-05, "public comments, narrow view"
--- Requires:        20261005150000_author_profiles_fk.sql (comments_user_id_profiles_fkey)
--- Depends on:      nothing else. Does not touch profiles.
+-- Requires:        nothing. NOT 20261005150000_author_profiles_fk.sql. The view
+--                  joins with a plain LEFT JOIN, which needs no foreign key,
+--                  and the FK migration does not reference this view. An earlier
+--                  version of this header claimed that dependency and it was
+--                  wrong; it also chained BEL-40 behind BEL-39 for no reason.
+-- Real prerequisite: BEL-48. The Supabase tool connection is bound to the
+--                  Shipwright project, so this file must be run against the
+--                  Belmont News project instead. That is a connection or
+--                  dashboard decision, not a migration ordering one.
+-- Does not touch:   profiles.
 --
 -- What is open today
 -- ------------------
@@ -62,8 +70,13 @@
 -- recreated rather than replaced so that a view left with security_invoker = on
 -- by an earlier attempt can be corrected.
 --
--- No agent can apply this. Supabase SQL access sits with Taz, the same
--- constraint as BEL-32 and BEL-39. This file is the reviewed statement.
+-- Who runs this file: not an agent, and not only Taz. Every Supabase tool
+-- connection currently bound in this company points at the Shipwright project,
+-- which has no comments table and no profiles table, so the transaction aborts
+-- with 42P01 and rolls back. Either repoint the connection (BEL-48) or open the
+-- Belmont News project in the Supabase dashboard and paste this file. It is
+-- idempotent, so running it twice is safe. This is the constraint from BEL-32,
+-- BEL-39 and BEL-48.
 
 begin;
 
