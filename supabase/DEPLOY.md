@@ -464,23 +464,47 @@ there has never been a SQL route.
 Read the grants before applying any migration that adds a column:
 
 ```sql
-select grantee, privilege_type, count(*)
-  from information_schema.column_privileges
- where table_schema = 'public' and table_name = 'weather_forecasts'
- group by 1, 2 order by 1, 2;
+select
+  (select count(*) > 0
+     from information_schema.table_privileges
+    where table_schema = 'public' and table_name = 'weather_forecasts'
+      and grantee = 'authenticated' and privilege_type = 'UPDATE')
+    as update_is_table_level,
+  (select coalesce(string_agg(column_name, ', ' order by column_name), '(none)')
+     from information_schema.column_privileges
+    where table_schema = 'public' and table_name = 'weather_forecasts'
+      and grantee = 'authenticated' and privilege_type = 'UPDATE')
+    as update_columns,
+  (select count(*)
+     from pg_attribute
+    where attrelid = 'public.weather_forecasts'::regclass
+      and attnum > 0 and not attisdropped and attacl is not null)
+    as columns_with_explicit_acl;
 ```
 
-- **No rows for `authenticated`** — its grants are table-level, which is the
-  Supabase default, and they already cover the six columns file 4 adds. Do
-  nothing.
-- **Rows for `authenticated`** — its grants are column-scoped. Extend them in the
-  same change as the migration, not as a follow-up. Grant `SELECT` as well as the
+- **`update_is_table_level = true` and `columns_with_explicit_acl = 0`** — its grants
+  are table-level, which is the Supabase default, and they already cover the six
+  columns file 4 adds. Do nothing.
+- **`update_is_table_level = false`** — its grants are column-scoped. Extend them in
+  the same change as the migration, not as a follow-up. Grant `SELECT` as well as the
   writes.
+
+**Do not count rows in `information_schema.column_privileges` for this.** Its first
+UNION branch explodes the *table* ACL and pairs it with every column, so a table-level
+grant is reported once per column, and the table owner appears with implicit privileges
+whether or not anything was ever granted. That view returns rows on a Supabase project
+with nothing column-scoped. An earlier revision of this section used it and told the
+reader that no rows meant table-level and rows meant stop; on a real PostgreSQL engine it
+returns rows for the default arrangement, so it reported stop on the correct case.
+`pg_attribute.attacl` is the real detector — it is NULL unless a column carries its own
+ACL — and it was checked in both directions: NULL on every column under table-level
+grants, and exactly the named columns after `UPDATE` was revoked and re-granted per
+column.
 
 `20261005140000` has its grant statements commented out on purpose, because
 which privileges a role needs is a person's call made after reading that check.
-That reasoning is sound. The gap is that the check has never been run, so file 4
-may be adding six columns that `authenticated` cannot write.
+That reasoning is sound. The gap is that the check has never been run against the real
+database, so file 4 may be adding six columns that `authenticated` cannot write.
 
 Why `SELECT` is not optional alongside the writes: PostgREST expands `select=*`
 to only the columns the calling role may read, and the admin panel loads the
