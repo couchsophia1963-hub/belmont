@@ -147,7 +147,18 @@ function WriterDashboard({ userId }: { userId: string }) {
   const loadApiKeys = useCallback(async () => {
     const { data, error } = await supabase
       .from('api_keys')
-      .select('*')
+      // Named columns, never `*`. `api_keys.key_hash` holds the raw credential -- the name says
+      // hash and it is not one -- so `select('*')` pulls every key this user owns into the page on
+      // every dashboard load, in full, over PostgREST. The owner-scoped RLS policy on this table is
+      // the only thing between that and a working writer credential, and a browser tab is a far
+      // easier thing to read than a database role.
+      //
+      // Nothing below renders `key_hash`; the fields are `id`, `name`, `last_used_at` and
+      // `key_prefix`. `user_id` is selected because the `ApiKey` type carries it, and `created_at`
+      // because the sort orders on it. Naming the columns also means this call keeps working, and
+      // keeps returning nothing secret, after `key_hash` is dropped and `key_digest` takes its
+      // place.
+      .select('id, user_id, key_prefix, name, last_used_at, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
     if (!error) setApiKeys((data ?? []) as ApiKey[]);
